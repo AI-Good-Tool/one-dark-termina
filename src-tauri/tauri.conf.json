@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "One Dark Terminal",
+  "version": "0.1.0",
+  "identifier": "com.onedark.terminal",
+  "mainBinaryName": "one-dark-terminal",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "One Dark Terminal",
+        "width": 960,
+        "height": 640,
+        "minWidth": 560,
+        "minHeight": 360,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg"],
+    "category": "Utility",
+    "resources": {
+      "resources/vim/colors/onedark.vim": "vim/colors/onedark.vim",
+      "resources/lproj/en.lproj/.keep": "en.lproj/.keep",
+      "resources/lproj/zh-Hans.lproj/.keep": "zh-Hans.lproj/.keep",
+      "resources/bin": "bin",
+      "resources/zsh": "zsh",
+      "target/release/odtls": "bin/odtls"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns"
+    ]
+  }
+}

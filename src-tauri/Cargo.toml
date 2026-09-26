@@ -1,0 +1,36 @@
+[package]
+name = "one-dark-terminal"
+version = "0.1.0"
+description = "A terminal with One Dark Pro theme"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[[bin]]
+name = "one-dark-terminal"
+path = "src/main.rs"
+
+[[bin]]
+name = "odtls"
+path = "src/bin/odtls.rs"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+portable-pty = "0.8"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+libc = "0.2"
+
+# macOS Dock 右键菜单（新建窗口）：Tauri 暂无官方 API，用 objc 给 App 委托
+# 动态添加 applicationDockMenu: 方法实现
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2"
+cocoa = "0.26"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

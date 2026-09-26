@@ -1,0 +1,43 @@
+/* Nerd Font 符号字体：渲染 lsd 等输出的文件图标（仅图标字形走此字体） */
+@font-face {
+  font-family: "Symbols Nerd Font Mono";
+  src: url("./assets/fonts/SymbolsNerdFontMono-Regular.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
+:root {
+  --bg: #282c34;
+  --bg-dark: #21252b;
+  --bg-darker: #1b1f27;
+  --border: #363c46;
+  --fg: #abb2bf;
+  --fg-dim: #5c6370;
+  --blue: #61afef;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+}
+
+/* 终端滚动条：始终隐藏（滚轮/触控板滚动不受影响） */
+.xterm-viewport {
+  scrollbar-width: none !important;
+}
+
+.xterm-viewport::-webkit-scrollbar {
+  display: none !important;
+}
