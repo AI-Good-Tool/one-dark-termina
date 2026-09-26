@@ -143,9 +143,10 @@ function tickSpriteCursor(sprite) {
     cursorCv.style.visibility = 'hidden'
     return
   }
-  // 高度 ≈ 1.7 倍行高，等比缩放，底边对齐光标单元格
+  // 高度与文本行高一致（1.1 倍行高），底边对齐光标行；
+  // 左对齐光标格向右延伸（光标后通常是空白，居中会压住左侧已输入的字符）
   const frame = cursorFrames[cursorFrameIdx]
-  const cssH = Math.round(dims.height * 1.7)
+  const cssH = Math.round(dims.height * 1.1)
   const cssW = Math.round((frame.width / frame.height) * cssH)
   const x = screenEl.offsetLeft + buf.cursorX * dims.width
   const y = screenEl.offsetTop + row * dims.height + dims.height - cssH

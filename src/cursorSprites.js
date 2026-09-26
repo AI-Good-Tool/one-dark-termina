@@ -8,342 +8,367 @@ export const NATIVE_STYLES = ['bar', 'block', 'underline']
 
 // ---------------------------------------------------------------------------
 // 像素精灵：字符串网格 + 调色板。'.' 透明，其余字符查 palette。
-// 动物为浅色剪影（仿截图风格），格斗家为原创彩色复古格斗游戏造型。
-// 每个精灵 2~3 帧循环动画。
+// 彩色 Q 版造型（侧视、大头、两帧动画）；格斗家为原创复古格斗游戏人物。
+// 显示时统一缩放到一个文本行高、底边对齐、水平居中于光标格。
 // ---------------------------------------------------------------------------
 
-const A = '#e6eaf2' // 剪影主色
-const a = '#aab2c2' // 剪影阴影
-
 export const SPRITES = {
-  // ===================== 动物（剪影） =====================
+  // ===================== 动物 =====================
   cat: {
-    zh: '奔跑的猫', en: 'Running Cat', group: 'animals', fps: 7,
-    palette: { W: A, w: a },
+    zh: '小橘猫', en: 'Ginger Cat', group: 'animals', fps: 6,
+    palette: { M: '#e89b4e', D: '#c67a30', L: '#f6d8ac', K: '#2f2f38', P: '#f2e8da' },
     frames: [
       [
-        '................',
-        'W..........W.W..',
-        'W.........WWWWW.',
-        '.W...WWWWWWWWWW.',
-        '..WWWWWWWWWWWW..',
-        '..WWWWWWWWWWW...',
-        '...WWWWWWWW.....',
-        '...W...W...W....',
-        '...W...W...W....',
-        '..WW...WW...WW..'
+        '...........MM..MM.',
+        '..........MMMMMMMM',
+        '.........MMMKMMMMM',
+        '.M......MMMMMMMM..',
+        '.MM.MMMMMMMMMMMMM.',
+        'MMMMMMMMMMMMMMMM..',
+        '..MMMLLLLLLLLLM...',
+        '...MMMLLLLLLMM....',
+        '....MMMMMMMMMM....',
+        '...DD..MM...DD.MM.',
+        '...DD..MM...DD.MM.',
+        '...PP..PP...PP.PP.'
       ],
       [
-        '................',
-        'W..........W.W..',
-        'W.........WWWWW.',
-        '.W...WWWWWWWWWW.',
-        '..WWWWWWWWWWWW..',
-        '..WWWWWWWWWWW...',
-        '...WWWWWWWW.....',
-        '....W...W..W....',
-        '....W...W..W....',
-        '...WW...WW..WW..'
+        '...........MM..MM.',
+        '..........MMMMMMMM',
+        '.........MMMKMMMMM',
+        '.M......MMMMMMMM..',
+        '.MM.MMMMMMMMMMMMM.',
+        'MMMMMMMMMMMMMMMM..',
+        '..MMMLLLLLLLLLM...',
+        '...MMMLLLLLLMM....',
+        '....MMMMMMMMMM....',
+        '....MM..DD..MM..DD',
+        '....MM..DD..MM..DD',
+        '....PP..PP..PP..PP'
       ]
     ]
   },
   dog: {
-    zh: '奔跑的狗', en: 'Running Dog', group: 'animals', fps: 7,
-    palette: { W: A, w: a },
+    zh: '小棕狗', en: 'Brown Dog', group: 'animals', fps: 6,
+    palette: { M: '#b5854d', D: '#8a6136', L: '#f0e4d0', K: '#2f2f38', N: '#3a2e26', P: '#f2e8da' },
     frames: [
       [
-        '................',
-        'W..........WW...',
-        'WW........WWWW..',
-        '.W....WWWWWWWWWW',
-        '..WWWWWWWWWWWWW.',
-        '..WWWWWWWWWWW...',
-        '...WWWWWWWW.....',
-        '...W...W...W....',
-        '...W...W...W....',
-        '..WW...WW...WW..'
+        '.MM...............',
+        'MMM.........MM....',
+        '.........MMMMMMDD.',
+        '.........MMMKMMMMN',
+        '....MMMMMMMLLLL...',
+        '..MMMMMMMMMMMMM...',
+        '..MMMLLLLLLLLMM...',
+        '...MMMLLLLLLMM....',
+        '....MMMMMMMMM.....',
+        '...DD..MM...DD.MM.',
+        '...DD..MM...DD.MM.',
+        '...PP..PP...PP.PP.'
       ],
       [
-        '................',
-        '................',
-        'W.........WW....',
-        'WW.......WWWW...',
-        '.WW...WWWWWWWWWW',
-        '..WWWWWWWWWWWWW.',
-        '..WWWWWWWWWWW...',
-        '....W...W..W....',
-        '....W...W..W....',
-        '...WW...WW..WW..'
+        '..MM..............',
+        '.MMM.........MM...',
+        '.........MMMMMMDD.',
+        '.........MMMKMMMMN',
+        '....MMMMMMMLLLL...',
+        '..MMMMMMMMMMMMM...',
+        '..MMMLLLLLLLLMM...',
+        '...MMMLLLLLLMM....',
+        '....MMMMMMMMM.....',
+        '....MM..DD..MM..DD',
+        '....MM..DD..MM..DD',
+        '....PP..PP..PP..PP'
       ]
     ]
   },
   horse: {
-    zh: '奔跑的马', en: 'Running Horse', group: 'animals', fps: 7,
-    palette: { W: A, w: a },
+    zh: '小骏马', en: 'Horse', group: 'animals', fps: 6,
+    palette: { M: '#a5683c', D: '#7a4526', H: '#4a2e1c', L: '#f0e4d0', K: '#2f2f38' },
     frames: [
       [
-        '............W.W.',
-        '...........WWWWW',
-        'W.........WW.WWW',
-        '.W......WWWWW...',
-        '..W..WWWWWWW....',
-        '..WWWWWWWWWW....',
-        '...WWWWWWWW.....',
-        '...W...W...W....',
-        '...W...W...W....',
-        '...W...W...W....',
-        '..WW...WW...WW..'
+        '.............M..M.',
+        '............MMMMMM',
+        '............MMKLLL',
+        '.........HHMMMM...',
+        '.......HHMMM......',
+        'HH.MMMMMMMMMM.....',
+        '.H.MMMMMMMMMMM....',
+        'HH.MMMMMMMMMM.....',
+        '....MMMMMMMMM.....',
+        '...DD..MM...DD.MM.',
+        '...DD..MM...DD.MM.',
+        '...LL..LL...LL.LL.',
+        '...DD..DD...DD.DD.'
       ],
       [
-        '............W.W.',
-        '...........WWWWW',
-        '.W........WW.WWW',
-        '..W.....WWWWW...',
-        '..WW.WWWWWWW....',
-        '..WWWWWWWWWW....',
-        '...WWWWWWWW.....',
-        '....W...W..W....',
-        '....W...W..W....',
-        '....W...W..W....',
-        '...WW...WW..WW..'
+        '.............M..M.',
+        '............MMMMMM',
+        '............MMKLLL',
+        '.........HHMMMM...',
+        '.......HHMMM......',
+        '.HH.MMMMMMMMM.....',
+        '..HMMMMMMMMMMM....',
+        '.HH.MMMMMMMMM.....',
+        '....MMMMMMMMM.....',
+        '....MM..DD..MM..DD',
+        '....MM..DD..MM..DD',
+        '....LL..LL..LL..LL',
+        '....DD..DD..DD..DD'
       ]
     ]
   },
   rabbit: {
-    zh: '跳跃的兔子', en: 'Hopping Rabbit', group: 'animals', fps: 5,
-    palette: { W: A, w: a },
+    zh: '小白兔', en: 'Rabbit', group: 'animals', fps: 4,
+    palette: { M: '#c9c9d4', D: '#9a9aa8', L: '#f2f2f6', K: '#2f2f38', P: '#e8a0b0' },
     frames: [
       [
-        '..........W..W..',
-        '..........W..W..',
-        '..........W..W..',
-        '..W......WWWWWW.',
-        '.WW..WWWWWWWWWW.',
-        '..WWWWWWWWWWW...',
-        '...WWWWWWW......',
-        '...WW...WW......',
-        '...WW...WW......',
-        '..WWW..WWW......'
+        '.........MM.MM..',
+        '.........MP.MP..',
+        '.........MM.MM..',
+        '........MMMMMM..',
+        '........MMMKMM..',
+        '........MMLLLM..',
+        '.....MMMMMMMM...',
+        '...LLMMMMMMMM...',
+        '....MMMLLLMM....',
+        '....MMMMMMMM....',
+        '....DD..MM......',
+        '...DDD..MMM.....'
       ],
       [
-        '..........W..W..',
-        '..........W..W..',
-        '..........W..W..',
-        '..W......WWWWWW.',
-        '.WW..WWWWWWWWWW.',
-        '..WWWWWWWWWWW...',
-        '...WWWWWWW......',
-        '...W....W....W..',
-        '...W....W....W..',
-        '..WW....WW....WW'
+        '.........MM.MM..',
+        '.........MP.MP..',
+        '.........MM.MM..',
+        '........MMMMMM..',
+        '........MMMKMM..',
+        '........MMLLLM..',
+        '.....MMMMMMMM...',
+        '...LLMMMMMMMM...',
+        '....MMMLLLMM....',
+        '....MMMMMMMM....',
+        '....DD...M...M..',
+        '...DD....MM...MM'
       ]
     ]
   },
   dino: {
-    zh: '小恐龙', en: 'Little Dino', group: 'animals', fps: 6,
-    palette: { W: A, w: a },
+    zh: '小恐龙', en: 'Little Dino', group: 'animals', fps: 5,
+    palette: { M: '#7ec850', D: '#54a038', L: '#d8f0b8', K: '#2f2f38' },
     frames: [
       [
-        '.........WWWW...',
-        '........WWWWWW..',
-        '........WW..WWW.',
-        'W.......WWWWW...',
-        'WW....WWWWWWW...',
-        '.WW.WWWWWWWWW...',
-        '..WWWWWWWWW.....',
-        '...WWWWWW.......',
-        '...WW...WW......',
-        '...W....W.......',
-        '..WWW..WWW......'
+        '........MMMMM...',
+        '........MMKMMM..',
+        '........MMMMMMM.',
+        '........MLLLL...',
+        '.M.....MMMM.....',
+        '.MM..MMMMMMM....',
+        '...MMMMMMMMMM...',
+        '...MMLLLLLMM....',
+        '....MLLLLMM.....',
+        '....MMMMMMM.....',
+        '....DD...MM.....',
+        '....DD...MM.....',
+        '...DDD..MMM.....'
       ],
       [
-        '.........WWWW...',
-        '........WWWWWW..',
-        '........WW..WWW.',
-        '.W......WWWWW...',
-        '.WW...WWWWWWW...',
-        '..WWWWWWWWWWW...',
-        '..WWWWWWWWW.....',
-        '...WWWWWW.......',
-        '....WW...WW.....',
-        '....W.....W.....',
-        '...WW...WWW.....'
+        '........MMMMM...',
+        '........MMKMMM..',
+        '........MMMMMMM.',
+        '........MLLLL...',
+        '.M.....MMMM.....',
+        '.MM..MMMMMMM....',
+        '...MMMMMMMMMM...',
+        '...MMLLLLLMM....',
+        '....MLLLLMM.....',
+        '....MMMMMMM.....',
+        '.....DD...MM....',
+        '.....DD...MM....',
+        '....DDD..MMM....'
       ]
     ]
   },
   mole: {
-    zh: '鼹鼠', en: 'Mole', group: 'animals', fps: 4,
-    palette: { W: A, w: a },
+    zh: '小鼹鼠', en: 'Mole', group: 'animals', fps: 3,
+    palette: { M: '#6b6b78', D: '#4c4c56', L: '#c9c9d4', P: '#e8a0b0', K: '#2f2f38' },
     frames: [
       [
-        '................',
-        'W...............',
-        'WW...........WW.',
-        '.WWWWWWWWWWWWWW.',
-        '..WWWWWWWWWWWW..',
-        '...WW.WWWW.WW...',
-        '..WW...WW.......',
+        '.D..............',
+        '..MMMMMMMMMMMLL.',
+        '..MMMMMMMMMKMLLP',
+        '..MMMMMMMMMMM...',
+        '....LLLLLLL.....',
+        '...PP..PP..PP...',
         '................'
       ],
       [
-        '................',
-        '.W..............',
-        '.WW..........WW.',
-        '.WWWWWWWWWWWWWW.',
-        '..WWWWWWWWWWWW..',
-        '...WW.WWWW.WW...',
-        '...WW...WW......',
+        '.D..............',
+        '..MMMMMMMMMMMLL.',
+        '..MMMMMMMMMKMLLP',
+        '..MMMMMMMMMMM...',
+        '....LLLLLLL.....',
+        '....PP..PP..PP..',
         '................'
       ]
     ]
   },
   dolphin: {
-    zh: '海豚', en: 'Dolphin', group: 'animals', fps: 5,
-    palette: { W: A, w: a },
+    zh: '小海豚', en: 'Dolphin', group: 'animals', fps: 4,
+    palette: { M: '#6ba8d8', D: '#4a86b8', L: '#d8ecf6', K: '#2f2f38' },
     frames: [
       [
-        '.....WW.........',
-        'W...WWWW........',
-        'WW.WWWWWWWW..WW.',
-        '.WWWWWWWWWWWWWW.',
-        '..WWWWWWWWWW....',
-        '.W...WW.........',
-        '................'
+        '.......MM.......',
+        '.....MMMMM......',
+        'DD.MMMMMMMMM.MMM',
+        '..MMMMMMMMKMMMMM',
+        '.MMMMMMMMMMMMM..',
+        '..MMLLLLLLLLMM..',
+        '...MLLLLLLM.....',
+        'DD....MMMMM.....',
+        'D...............'
       ],
       [
-        '.....WW.........',
-        '....WWWW........',
-        'WW.WWWWWWWW..WW.',
-        '.WWWWWWWWWWWWWW.',
-        'W.WWWWWWWWWW....',
-        'WW..WW..........',
+        '.......MM.......',
+        '.....MMMMM......',
+        'DD.MMMMMMMMM.MMM',
+        '..MMMMMMMMKMMMMM',
+        '.MMMMMMMMMMMMM..',
+        '..MMLLLLLLLLMM..',
+        'D..MLLLLLLM.....',
+        'DD...MMMMM......',
         '................'
       ]
     ]
   },
   bird: {
-    zh: '飞鸟', en: 'Flying Bird', group: 'animals', fps: 5,
-    palette: { W: A, w: a },
+    zh: '小蓝鸟', en: 'Blue Bird', group: 'animals', fps: 5,
+    palette: { M: '#5c9ce8', D: '#3a78c8', L: '#f0e8d8', O: '#e8a03c', K: '#2f2f38' },
     frames: [
       [
-        '....W.....W.....',
-        '....WW...WW.....',
-        '.....WWWWW......',
-        '...WWWWWWWWW.WW.',
-        '....WWWWWWW.....',
-        '......WWW.......',
-        '................'
+        '...M......M...',
+        '...MM....MM...',
+        '.....MMMMM....',
+        '....MMMKMOO...',
+        '....MMMMMM....',
+        '....MLLLLM....',
+        '..DDD..MMM....',
+        '..............'
       ],
       [
-        '................',
-        '.....WWWWW......',
-        '...WWWWWWWWW.WW.',
-        '....WWWWWWW.....',
-        '....WWWWWW......',
-        '....WW...WW.....',
-        '....W.....W.....'
+        '..............',
+        '.....MMMMM....',
+        '....MMMKMOO...',
+        '....MMMMMM....',
+        '...MMLLLLM....',
+        '..DDD..MMM....',
+        '...M....M.....',
+        '..............'
       ]
     ]
   },
   duck: {
-    zh: '鸭子', en: 'Duck', group: 'animals', fps: 4,
-    palette: { W: A, w: a },
+    zh: '小黄鸭', en: 'Duck', group: 'animals', fps: 3,
+    palette: { M: '#f0d040', D: '#d4a920', O: '#e87830', K: '#2f2f38' },
     frames: [
       [
-        '.........WWW....',
-        '.........WWWW...',
-        '........WWWWWWW.',
-        '..W....WWWWW....',
-        '.WWWWWWWWWWWW...',
-        '..WWWWWWWWWWW...',
-        '...WWWWWWWW.....',
-        '................'
+        '........MMMM..',
+        '........MMKOO.',
+        '.......MMMMM..',
+        '..M...MMMM....',
+        '.MMMMMMMMMM...',
+        '..MMMDDDDMM...',
+        '..MMMMMMMM....',
+        '..DDDDDDDD....'
       ],
       [
-        '.........WWW....',
-        '.........WWWW...',
-        '........WWWWWWW.',
-        '.WW....WWWWW....',
-        '.WWWWWWWWWWWW...',
-        '..WWWWWWWWWWW...',
-        '...WWWWWWWW.....',
-        '................'
+        '........MMMM..',
+        '........MMKO..',
+        '.......MMMMOO.',
+        '..M...MMMM....',
+        '.MMMMMMMMMM...',
+        '..MMMDDDDMM...',
+        '..MMMMMMMM....',
+        '..DDDDDDDD....'
       ]
     ]
   },
   fish: {
-    zh: '游鱼', en: 'Swimming Fish', group: 'animals', fps: 5,
-    palette: { W: A, w: a },
+    zh: '小丑鱼', en: 'Clownfish', group: 'animals', fps: 4,
+    palette: { M: '#e88a3c', D: '#c86a20', L: '#f6e0c8', K: '#2f2f38' },
     frames: [
       [
-        '......WW........',
-        '....WWWWWW......',
-        'WW.WWWWWWWWW.WW.',
-        'WWWWWWWWWWWWWW..',
-        'WW.WWWWWWWWW....',
-        '....WWWWWW......',
-        '......WW........',
-        '................'
+        '......DDD.....',
+        '....MMMMMMM...',
+        'DDDMMMMMMMKMM.',
+        'DDMMMLLMMMMMMM',
+        'DDDMMMMMMMM...',
+        '....MMMMMM....',
+        '......DD......'
       ],
       [
-        '......WW........',
-        '....WWWWWW......',
-        '.WWWWWWWWWWW.WW.',
-        'WWWWWWWWWWWWWW..',
-        '.WWWWWWWWWWWW...',
-        '..WWWWWWWW......',
-        '......WW........',
-        '................'
+        '......DDD.....',
+        '....MMMMMMM...',
+        '.DDMMMMMMMKMM.',
+        'DMMMLLMMMMMMMM',
+        '.DDMMMMMMMM...',
+        '....MMMMMM....',
+        '......DD......'
       ]
     ]
   },
   alien: {
-    zh: '像素外星人', en: 'Pixel Alien', group: 'animals', fps: 4,
-    palette: { W: A, w: a },
+    zh: '小外星人', en: 'Little Alien', group: 'animals', fps: 3,
+    palette: { M: '#7ee87e', D: '#4cb84c', L: '#c8f0c8', K: '#1c2a1c' },
     frames: [
       [
-        '.....W..W.......',
-        '......WW........',
-        '....WWWWWW......',
-        '...WWWWWWWW.....',
-        '..WW.WWWW.WW....',
-        '..WWWWWWWWWW....',
-        '...W.W..W.W.....',
-        '..W.W....W.W....'
+        '......MM......',
+        '......LL......',
+        '....MMMMMM....',
+        '...MMMMMMM....',
+        '...MKKMKKM....',
+        '...MKKMMKKM...',
+        '....MMMMMM....',
+        '....MLLLLM....',
+        '..MM..MMMM..MM',
+        '....MM..MM....',
+        '...DDD..DDD...'
       ],
       [
-        '.....W..W.......',
-        '......WW........',
-        '....WWWWWW......',
-        '...WWWWWWWW.....',
-        '..WWW.WW.WWW....',
-        '..WWWWWWWWWW....',
-        '....W.W..W.W....',
-        '..W..W....W..W..'
+        '......MM......',
+        '......LL......',
+        '....MMMMMM....',
+        '...MMMMMMM....',
+        '...MKKMKKM....',
+        '...MKKMMKKM...',
+        '....MDDDDM....',
+        '....MLLLLM....',
+        '.M...MMMM...M.',
+        '....MM..MM....',
+        '...DDD..DDD...'
       ]
     ]
   },
   pushup: {
-    zh: '俯卧撑小人', en: 'Push-up Man', group: 'animals', fps: 3,
-    palette: { W: A, w: a },
+    zh: '健身小人', en: 'Push-up Man', group: 'animals', fps: 2,
+    palette: { S: '#e8b88a', H: '#2b2b33', T: '#4a90d8', P: '#2f3542', B: '#171a21' },
     frames: [
       [
         '................',
-        '............WWW.',
-        '............WWW.',
-        'WWWWWWWWWWWWW...',
-        'W..........W....',
-        'W..........W....',
-        'WW.........WW...',
+        '............HHH.',
+        '............SSS.',
+        '.TTTTTPPPPPPS...',
+        'B..........S....',
+        'B..........S....',
+        'BB.........SS...',
         '................'
       ],
       [
         '................',
         '................',
-        '............WWW.',
-        '............WWW.',
-        'WWWWWWWWWWWWW...',
-        'WW.........WW...',
+        '............HHH.',
+        '............SSS.',
+        '.TTTTTPPPPPPS...',
+        'BB.........SS...',
         '................',
         '................'
       ]
@@ -356,14 +381,14 @@ export const SPRITES = {
     palette: {
       H: '#26262e', W: '#e8e8e8', S: '#e8b88a', s: '#c78e5f',
       R: '#d43d3d', r: '#962c2c', P: '#2f3542', B: '#171a21',
-      F: '#f5a623', f: '#e05b2b'
+      F: '#f5a623', f: '#e05b2b', K: '#2f2f38'
     },
     frames: [
       [
         '.....HHHHH......',
         '....HHHHHHH.....',
         '...WWWWWWWWW....',
-        '....SSSSSS......',
+        '....SSKSSS......',
         '....SSsSSS......',
         '.....SSSS.......',
         '...RRRRRRRR.....',
@@ -381,7 +406,7 @@ export const SPRITES = {
         '.....HHHHH......',
         '....HHHHHHH.....',
         '...WWWWWWWWW....',
-        '....SSSSSS......',
+        '....SSKSSS......',
         '....SSsSSS......',
         '.....SSSS.......',
         '...RRRRRRRR.....',
@@ -400,8 +425,8 @@ export const SPRITES = {
   fighterBlue: {
     zh: '苍雷格斗家', en: 'Azure Fighter', group: 'fighters', fps: 3,
     palette: {
-      H: '#3a4a6b', S: '#e8b88a', s: '#c78e5f',
-      U: '#3d6bd4', u: '#2a4a96', W: '#e8e8e8', K: '#171a21',
+      H: '#3a4a6b', S: '#e8b88a', s: '#c78e5f', K: '#2f2f38',
+      U: '#3d6bd4', u: '#2a4a96', W: '#e8e8e8', X: '#171a21',
       Y: '#f5d623', y: '#d4a920'
     },
     frames: [
@@ -409,7 +434,7 @@ export const SPRITES = {
         '....H.H.H.H.....',
         '....HHHHHHH.....',
         '....HHHHHHH.....',
-        '....SSSSSS......',
+        '....SSKSSS......',
         '....SSsSSS......',
         '.....SSSS.......',
         '...UUUUUUUU.....',
@@ -421,13 +446,13 @@ export const SPRITES = {
         '....WW..WW......',
         '....WW..WW......',
         '....WW..WW......',
-        '...KKK..KKK.....'
+        '...XXX..XXX.....'
       ],
       [
         '....H.H.H.H.....',
         '....HHHHHHH.....',
         '....HHHHHHH.....',
-        '....SSSSSS......',
+        '....SSKSSS......',
         '....SSsSSS......',
         '.....SSSS.......',
         '...UUUUUUUU.....',
@@ -439,22 +464,22 @@ export const SPRITES = {
         '....WW..WW......',
         '....WW..WW......',
         '....WW..WW......',
-        '...KKK..KKK.....'
+        '...XXX..XXX.....'
       ]
     ]
   },
   fighterGreen: {
     zh: '翠影格斗家', en: 'Jade Fighter', group: 'fighters', fps: 3,
     palette: {
-      H: '#20242c', S: '#e8b88a', s: '#c78e5f',
-      G: '#3dd48a', g: '#22995e', K: '#22262e', B: '#171a21',
+      H: '#20242c', S: '#e8b88a', s: '#c78e5f', K: '#2f2f38',
+      G: '#3dd48a', g: '#22995e', N: '#22262e', B: '#171a21',
       C: '#56c8d8'
     },
     frames: [
       [
         '....HHHHHH......',
         '....HHHHHHH.....',
-        '....SSSSSS......',
+        '....SSKSSS......',
         '....SSsSSS......',
         '.....SSSS.......',
         '..CCCCCCC.......',
@@ -463,16 +488,16 @@ export const SPRITES = {
         '..SGGGGGGGGS....',
         '..S.GGGGGG.S....',
         '..gGGGGGGGg.....',
-        '....KKKKKK......',
-        '....KK..KK......',
-        '....KK..KK......',
-        '....KK..KK......',
+        '....NNNNNN......',
+        '....NN..NN......',
+        '....NN..NN......',
+        '....NN..NN......',
         '...BBB..BBB.....'
       ],
       [
         '....HHHHHH......',
         '....HHHHHHH.....',
-        '....SSSSSS......',
+        '....SSKSSS......',
         '....SSsSSS......',
         '.....SSSS.......',
         '..CCCCCCC.......',
@@ -481,10 +506,10 @@ export const SPRITES = {
         '..SGGGGGGGGS....',
         '..S.GGGGGG.S....',
         '..gGGGGGGGg.....',
-        '....KKKKKK......',
-        '....KKKKK.......',
-        '....KK...KKK....',
-        '...BBB....KK....',
+        '....NNNNNN......',
+        '....NNNNN.......',
+        '....NN...NNN....',
+        '...BBB....NN....',
         '.........BBB....'
       ]
     ]
