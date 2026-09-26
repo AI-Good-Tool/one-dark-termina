@@ -17,6 +17,9 @@ pub struct Settings {
     /// "builtin" 或 "<extId>:<iconThemeId>"
     #[serde(default = "default_builtin")]
     pub icon_theme: String,
+    /// 光标样式："bar" | "block" | "underline" | 精灵名（cat/fighterRed 等）
+    #[serde(default = "default_bar")]
+    pub cursor_style: String,
 }
 
 fn default_system() -> String {
@@ -24,6 +27,9 @@ fn default_system() -> String {
 }
 fn default_builtin() -> String {
     "builtin".to_string()
+}
+fn default_bar() -> String {
+    "bar".to_string()
 }
 
 impl Default for Settings {
@@ -33,6 +39,7 @@ impl Default for Settings {
             timezone: default_system(),
             color_theme: default_builtin(),
             icon_theme: default_builtin(),
+            cursor_style: default_bar(),
         }
     }
 }

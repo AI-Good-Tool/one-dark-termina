@@ -35,7 +35,14 @@ const dict = {
     noExtensions: '尚未安装扩展。可导入 VS Code 的 .vsix 扩展（图标主题 / 颜色主题）。',
     save: '保存',
     dontSave: '不保存',
-    editorUnsaved: '有未保存的更改，关闭前保存吗？'
+    editorUnsaved: '有未保存的更改，关闭前保存吗？',
+    settingsCursor: '光标',
+    cursorBar: '竖线（默认）',
+    cursorBlock: '方块',
+    cursorUnderline: '下划线',
+    cursorGroupNative: '经典',
+    cursorGroupAnimals: '动物总动员',
+    cursorGroupFighters: '格斗家'
   },
   en: {
     terminalName: (n) => `Terminal ${n}`,
@@ -59,7 +66,14 @@ const dict = {
     noExtensions: 'No extensions yet. Import VS Code .vsix extensions (icon themes / color themes).',
     save: 'Save',
     dontSave: "Don't Save",
-    editorUnsaved: 'You have unsaved changes. Save before closing?'
+    editorUnsaved: 'You have unsaved changes. Save before closing?',
+    settingsCursor: 'Cursor',
+    cursorBar: 'Bar (default)',
+    cursorBlock: 'Block',
+    cursorUnderline: 'Underline',
+    cursorGroupNative: 'Classic',
+    cursorGroupAnimals: 'Animals',
+    cursorGroupFighters: 'Fighters'
   }
 }
 

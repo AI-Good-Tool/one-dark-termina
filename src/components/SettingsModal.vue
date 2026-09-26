@@ -2,8 +2,9 @@
 import { ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
-import { t, setLocale } from '../i18n'
+import { t, setLocale, locale } from '../i18n'
 import { applyTermTheme, iconFontFamily } from '../theme'
+import { cursorStyle, SPRITES } from '../cursorSprites'
 
 const props = defineProps({
   visible: { type: Boolean, default: false }
@@ -14,7 +15,8 @@ const settings = ref({
   language: 'system',
   timezone: 'system',
   colorTheme: 'builtin',
-  iconTheme: 'builtin'
+  iconTheme: 'builtin',
+  cursorStyle: 'bar'
 })
 const extensions = ref([])
 const error = ref('')
@@ -87,6 +89,21 @@ async function onLanguageChange() {
     setLocale(settings.value.language)
   }
 }
+
+// 光标样式：持久化并立即应用到所有终端标签页
+async function onCursorChange() {
+  await persist()
+  cursorStyle.value = settings.value.cursorStyle
+}
+
+// 精灵选项按分组整理（动物 / 格斗家），标签跟随界面语言
+const spriteGroups = computed(() => {
+  const groups = { animals: [], fighters: [] }
+  for (const [key, s] of Object.entries(SPRITES)) {
+    groups[s.group]?.push({ value: key, label: locale.value === 'zh' ? s.zh : s.en })
+  }
+  return groups
+})
 
 async function onThemeChange(kind) {
   error.value = ''
@@ -194,6 +211,26 @@ async function uninstall(id) {
             <option v-for="o in iconThemeOptions" :key="o.value" :value="o.value">
               {{ o.label }}
             </option>
+          </select>
+        </label>
+        <label class="row">
+          <span>{{ t('settingsCursor') }}</span>
+          <select v-model="settings.cursorStyle" @change="onCursorChange">
+            <optgroup :label="t('cursorGroupNative')">
+              <option value="bar">{{ t('cursorBar') }}</option>
+              <option value="block">{{ t('cursorBlock') }}</option>
+              <option value="underline">{{ t('cursorUnderline') }}</option>
+            </optgroup>
+            <optgroup :label="t('cursorGroupAnimals')">
+              <option v-for="o in spriteGroups.animals" :key="o.value" :value="o.value">
+                {{ o.label }}
+              </option>
+            </optgroup>
+            <optgroup :label="t('cursorGroupFighters')">
+              <option v-for="o in spriteGroups.fighters" :key="o.value" :value="o.value">
+                {{ o.label }}
+              </option>
+            </optgroup>
           </select>
         </label>
       </div>

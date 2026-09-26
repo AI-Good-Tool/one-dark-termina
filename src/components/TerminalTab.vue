@@ -9,6 +9,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { oneDarkTheme, currentTheme, iconFontFamily } from '../theme'
 import { detachedSessions } from '../sessions'
 import { openEditorWindow } from '../editor'
+import { cursorStyle, SPRITES, spriteFrameCanvas, NATIVE_STYLES } from '../cursorSprites'
 import '@xterm/xterm/css/xterm.css'
 
 // 字体栈：扩展图标字体（若有）必须排在 Symbols Nerd Font 前面以赢得码点冲突
@@ -69,6 +70,100 @@ let unlistenData = null
 let unlistenExit = null
 let observer = null
 let spawned = false
+
+// ---- 自定义动画光标（像素精灵覆盖层） ----
+// 原理：把原生光标设为透明，在 .term-host 上叠一个 canvas，
+// 50ms 定时读取 buffer 光标位置跟随，并按精灵 fps 换帧。
+let cursorCv = null
+let cursorTimer = null
+let cursorFrames = []
+let cursorFrameIdx = 0
+let cursorLastSwap = 0
+
+const TRANSPARENT = 'rgba(0,0,0,0)'
+
+function teardownSpriteCursor() {
+  if (cursorTimer) {
+    clearInterval(cursorTimer)
+    cursorTimer = null
+  }
+  if (cursorCv) {
+    cursorCv.remove()
+    cursorCv = null
+  }
+  cursorFrames = []
+}
+
+function nativeTheme() {
+  return currentTheme.value || oneDarkTheme
+}
+
+function applyCursorStyle() {
+  if (!term) return
+  teardownSpriteCursor()
+  const sprite = SPRITES[cursorStyle.value]
+  if (sprite) {
+    // 隐藏原生光标（透明色 + 失焦不描边），覆盖层接管
+    term.options.theme = { ...nativeTheme(), cursor: TRANSPARENT, cursorAccent: TRANSPARENT }
+    term.options.cursorBlink = false
+    term.options.cursorInactiveStyle = 'none'
+    cursorFrames = sprite.frames.map((_, i) => spriteFrameCanvas(sprite, i, 3))
+    cursorCv = document.createElement('canvas')
+    cursorCv.className = 'odt-sprite-cursor'
+    cursorCv.width = cursorFrames[0].width
+    cursorCv.height = cursorFrames[0].height
+    const ctx = cursorCv.getContext('2d')
+    ctx.imageSmoothingEnabled = false
+    ctx.drawImage(cursorFrames[0], 0, 0)
+    el.value.appendChild(cursorCv)
+    cursorFrameIdx = 0
+    cursorLastSwap = 0
+    cursorTimer = setInterval(() => tickSpriteCursor(sprite), 50)
+  } else {
+    term.options.theme = nativeTheme()
+    term.options.cursorStyle = NATIVE_STYLES.includes(cursorStyle.value)
+      ? cursorStyle.value
+      : 'bar'
+    term.options.cursorBlink = true
+    term.options.cursorInactiveStyle = 'outline'
+  }
+}
+
+function tickSpriteCursor(sprite) {
+  if (!term || !cursorCv) return
+  const dims = term._core?._renderService?.dimensions?.css?.cell
+  const screenEl = el.value?.querySelector('.xterm-screen')
+  if (!dims || !screenEl || !dims.width) {
+    cursorCv.style.visibility = 'hidden'
+    return
+  }
+  const buf = term.buffer.active
+  const row = buf.cursorY - buf.viewportY
+  if (row < 0 || row >= term.rows) {
+    cursorCv.style.visibility = 'hidden'
+    return
+  }
+  // 高度 ≈ 1.7 倍行高，等比缩放，底边对齐光标单元格
+  const frame = cursorFrames[cursorFrameIdx]
+  const cssH = Math.round(dims.height * 1.7)
+  const cssW = Math.round((frame.width / frame.height) * cssH)
+  const x = screenEl.offsetLeft + buf.cursorX * dims.width
+  const y = screenEl.offsetTop + row * dims.height + dims.height - cssH
+  cursorCv.style.visibility = 'visible'
+  cursorCv.style.width = `${cssW}px`
+  cursorCv.style.height = `${cssH}px`
+  cursorCv.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`
+  // 换帧
+  const now = performance.now()
+  if (now - cursorLastSwap >= 1000 / sprite.fps) {
+    cursorLastSwap = now
+    cursorFrameIdx = (cursorFrameIdx + 1) % cursorFrames.length
+    const ctx = cursorCv.getContext('2d')
+    ctx.imageSmoothingEnabled = false
+    ctx.clearRect(0, 0, cursorCv.width, cursorCv.height)
+    ctx.drawImage(cursorFrames[cursorFrameIdx], 0, 0)
+  }
+}
 
 function doResize() {
   if (!term || !fit) return
@@ -165,6 +260,15 @@ onMounted(async () => {
 
   doResize()
 
+  // 载入持久化的光标样式并应用（多标签共享同一 ref，重复赋值无副作用）
+  try {
+    const s = await invoke('get_settings')
+    if (s?.cursorStyle) cursorStyle.value = s.cursorStyle
+  } catch {
+    /* 设置读取失败则用默认竖线光标 */
+  }
+  applyCursorStyle()
+
   term.onData((data) => {
     if (spawned) invoke('pty_write', { id: props.sessionId, data })
   })
@@ -229,8 +333,13 @@ watch(
 )
 
 // 扩展颜色主题 / 图标字体变化时实时换肤
-watch(currentTheme, (theme) => {
-  if (term) term.options.theme = theme
+// （走 applyCursorStyle 以保留"精灵光标时原生光标透明"的处理）
+watch(currentTheme, () => {
+  applyCursorStyle()
+})
+// 光标样式变化时所有标签页实时切换
+watch(cursorStyle, () => {
+  applyCursorStyle()
 })
 watch(iconFontFamily, () => {
   if (term) {
@@ -240,6 +349,7 @@ watch(iconFontFamily, () => {
 })
 
 onBeforeUnmount(() => {
+  teardownSpriteCursor()
   observer?.disconnect()
   unlistenData?.()
   unlistenExit?.()
@@ -273,5 +383,17 @@ onBeforeUnmount(() => {
 
 .term-host :deep(.xterm-viewport)::-webkit-scrollbar {
   display: none;
+}
+</style>
+
+<!-- 动态创建的精灵光标 canvas 不带 scoped 属性，需全局样式 -->
+<style>
+.odt-sprite-cursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 40;
+  image-rendering: pixelated;
 }
 </style>
