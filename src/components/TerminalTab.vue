@@ -6,6 +6,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { oneDarkTheme, currentTheme, iconFontFamily, cursorStyle } from '../theme'
 import { detachedSessions } from '../sessions'
 import { openEditorWindow } from '../editor'
@@ -44,6 +45,12 @@ function handleOdtLink(uri) {
   }
 }
 
+// ---- 拖入文件/文件夹：在输入行插入路径（仿 macOS 终端）----
+// 只含安全字符的路径原样插入；否则单引号包裹（内部单引号按 shell 规则转义）
+function shellQuote(p) {
+  return /^[A-Za-z0-9_\-./:%@+,=~]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`
+}
+
 // ---- vi/vim 打开文件的接管序列（zsh 函数输出 \e]9;odt-edit:<path>\a）----
 let oscHold = ''
 function feedPtyData(data) {
@@ -67,6 +74,7 @@ let term = null
 let fit = null
 let unlistenData = null
 let unlistenExit = null
+let unlistenDrag = null
 let observer = null
 let spawned = false
 
@@ -200,6 +208,20 @@ onMounted(async () => {
     emit('exit')
   })
 
+  // 拖入文件/文件夹 → 插入 shell 转义后的路径（多个以空格分隔，末尾补空格）。
+  // Tauri 2 的 webview 会拦截 HTML5 drop，需走 onDragDropEvent 拿完整路径。
+  // 多标签共用同一 webview 事件，只有当前激活标签响应。
+  unlistenDrag = await getCurrentWebview().onDragDropEvent((e) => {
+    if (e.payload.type !== 'drop' || !props.active || !spawned) return
+    const paths = e.payload.paths || []
+    if (!paths.length) return
+    invoke('pty_write', {
+      id: props.sessionId,
+      data: paths.map(shellQuote).join(' ') + ' '
+    })
+    term.focus()
+  })
+
   const windowLabel = getCurrentWindow().label
   if (props.attach) {
     // 附着已存在的会话：回放 backlog，不重启 shell
@@ -267,6 +289,7 @@ onBeforeUnmount(() => {
   observer?.disconnect()
   unlistenData?.()
   unlistenExit?.()
+  unlistenDrag?.()
   // 拖出移动的会话已移交新窗口，这里不杀 PTY
   if (spawned && !detachedSessions.has(props.sessionId)) {
     invoke('pty_kill', { id: props.sessionId })
