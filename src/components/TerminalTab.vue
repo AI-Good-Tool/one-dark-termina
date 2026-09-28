@@ -9,10 +9,11 @@ let webglActive = 0
 </script>
 
 <script setup>
-import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
+import { WebLinksAddon } from '@xterm/addon-web-links'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -125,6 +126,7 @@ function feedPtyData(data) {
 }
 
 const el = ref(null)
+const trackEl = ref(null)
 let term = null
 let fit = null
 let webgl = null
@@ -133,6 +135,73 @@ let unlistenExit = null
 let unlistenDrag = null
 let observer = null
 let spawned = false
+
+// ---- 自绘滚动条 ----
+// WKWebView 的覆盖式滚动条对 ::-webkit-scrollbar 自定义样式的支持不可靠
+//（真机验证：overflow-y:auto + thumb 样式均不显示），改为完全自绘：
+// 由 xterm 滚动事件驱动的悬浮 thumb，有滚屏历史时显示，支持拖拽/点轨道跳转。
+const scrollbar = reactive({ visible: false, top: 0, height: 100, dragging: false })
+let dragInfo = null
+
+function updateScrollbar() {
+  if (!term) {
+    scrollbar.visible = false
+    return
+  }
+  const buf = term.buffer.active
+  const baseY = buf.baseY // 备用缓冲区（vim/htop）baseY=0 → 隐藏
+  if (baseY <= 0) {
+    scrollbar.visible = false
+    return
+  }
+  const total = baseY + term.rows
+  const h = Math.max(6, (term.rows / total) * 100)
+  scrollbar.height = h
+  // viewportY ∈ [0, baseY]，线性映射到可用轨道区间，保证滚到底时 thumb 贴底
+  scrollbar.top = (buf.viewportY / baseY) * (100 - h)
+  scrollbar.visible = true
+}
+
+function onThumbDown(e) {
+  if (!term || !trackEl.value) return
+  e.preventDefault()
+  e.stopPropagation()
+  const trackH = trackEl.value.clientHeight
+  const thumbH = (scrollbar.height / 100) * trackH
+  dragInfo = {
+    startY: e.clientY,
+    startViewportY: term.buffer.active.viewportY,
+    baseY: term.buffer.active.baseY,
+    pxRange: Math.max(1, trackH - thumbH)
+  }
+  scrollbar.dragging = true
+  window.addEventListener('mousemove', onDragMove)
+  window.addEventListener('mouseup', onDragUp, { once: true })
+}
+
+function onDragMove(e) {
+  if (!dragInfo || !term) return
+  const dy = e.clientY - dragInfo.startY
+  const lines = (dy / dragInfo.pxRange) * dragInfo.baseY
+  const target = Math.round(dragInfo.startViewportY + lines)
+  term.scrollToLine(Math.max(0, Math.min(term.buffer.active.baseY, target)))
+}
+
+function onDragUp() {
+  dragInfo = null
+  scrollbar.dragging = false
+  window.removeEventListener('mousemove', onDragMove)
+}
+
+// 点轨道（非 thumb）：按点击位置比例跳转
+function onTrackDown(e) {
+  if (!term || !trackEl.value) return
+  e.preventDefault()
+  const rect = trackEl.value.getBoundingClientRect()
+  const ratio = (e.clientY - rect.top) / rect.height
+  term.scrollToLine(Math.round(ratio * term.buffer.active.baseY))
+  term.focus()
+}
 
 function setupWebGL() {
   if (webglActive >= MAX_WEBGL) return
@@ -216,6 +285,11 @@ onMounted(async () => {
   term.loadAddon(fit)
   term.open(el.value)
 
+  // 纯文本 http(s) URL 的链接识别在 @xterm/addon-web-links 里（xterm 核心
+  // 只处理 OSC8 超链接）——之前没装这个 addon，导致 URL 只着色、点击无反应。
+  // 显式传 handler，否则默认 handler 走 window.open（Tauri 里无效果）。
+  term.loadAddon(new WebLinksAddon((_event, uri) => handleLinkClick(uri)))
+
   // 去除 OSC8 链接的下划线（两路补丁，均已用最小复现页验证）：
   // 1) 根因：xterm 5.5 的 ExtendedAttrs.underlineStyle getter 对带 urlId 的
   //    单元格硬编码返回 5（虚线下划线），WebGL 渲染器恒画下划线。
@@ -273,8 +347,13 @@ onMounted(async () => {
   })
   term.onResize(({ cols, rows }) => {
     if (spawned) invoke('pty_resize', { id: props.sessionId, cols, rows })
+    updateScrollbar()
   })
   term.onTitleChange((t) => emit('title', t))
+  // 滚动条跟随：滚动/换行（新输出）/缓冲区切换（进出 vim 等备用屏）
+  term.onScroll(() => updateScrollbar())
+  term.onLineFeed(() => updateScrollbar())
+  term.buffer.onBufferChange(() => updateScrollbar())
 
   unlistenData = await listen(`pty-data-${props.sessionId}`, (e) => {
     feedPtyData(e.payload)
@@ -428,6 +507,8 @@ onBeforeUnmount(() => {
   unlistenExit?.()
   unlistenDrag?.()
   clearTimeout(urlFlushTimer)
+  window.removeEventListener('mousemove', onDragMove)
+  window.removeEventListener('mouseup', onDragUp)
   // 被移动（分屏/新标签页/拖出到新窗口）的会话带有 detached 标记：
   // 本次卸载不杀 PTY，并把标记消费掉——之后新挂载的组件再卸载时照常 kill，
   // 否则标记残留会导致最终关闭窗格时 shell 泄漏。
@@ -447,14 +528,34 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="el" class="term-host" @contextmenu="onContextMenu"></div>
+  <div class="term-root">
+    <div ref="el" class="term-host" @contextmenu="onContextMenu"></div>
+    <div
+      v-show="scrollbar.visible"
+      ref="trackEl"
+      class="term-scrollbar"
+      @mousedown="onTrackDown"
+    >
+      <div
+        class="term-scrollbar-thumb"
+        :class="{ dragging: scrollbar.dragging }"
+        :style="{ top: scrollbar.top + '%', height: scrollbar.height + '%' }"
+        @mousedown="onThumbDown"
+      ></div>
+    </div>
+  </div>
 </template>
 
 <style scoped>
+.term-root {
+  position: absolute;
+  inset: 0;
+}
+
 .term-host {
   position: absolute;
   inset: 0;
-  /* 右侧预留滚动条空间（8px 滚动条 + 边距），避免出现时压住最后一列 */
+  /* 右侧预留滚动条空间（9px 悬浮滚动条 + 边距），避免压住最后一列 */
   padding: 8px 12px 8px 12px;
 }
 
@@ -462,25 +563,36 @@ onBeforeUnmount(() => {
   height: 100%;
 }
 
+/* 原生滚动条彻底隐藏，由自绘 thumb 替代（WKWebView 覆盖式滚动条样式不可靠） */
 .term-host :deep(.xterm-viewport) {
-  /* 覆盖 xterm 默认的 overflow-y: scroll：内容超高时才出滚动条 */
-  overflow-y: auto;
+  scrollbar-width: none;
 }
 
 .term-host :deep(.xterm-viewport)::-webkit-scrollbar {
-  width: 8px;
+  display: none;
 }
 
-.term-host :deep(.xterm-viewport)::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.16);
+.term-scrollbar {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  right: 3px;
+  width: 9px;
+  z-index: 30;
+}
+
+.term-scrollbar-thumb {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  min-height: 20px;
   border-radius: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  transition: background 0.15s;
 }
 
-.term-host :deep(.xterm-viewport)::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.term-host :deep(.xterm-viewport)::-webkit-scrollbar-track {
-  background: transparent;
+.term-scrollbar-thumb:hover,
+.term-scrollbar-thumb.dragging {
+  background: rgba(255, 255, 255, 0.34);
 }
 </style>
