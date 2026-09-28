@@ -39,10 +39,7 @@ const dict = {
     settingsCursor: '光标',
     cursorBar: '竖线（默认）',
     cursorBlock: '方块',
-    cursorUnderline: '下划线',
-    cursorGroupNative: '经典',
-    cursorGroupAnimals: '动物总动员',
-    cursorGroupFighters: '格斗家'
+    cursorUnderline: '下划线'
   },
   en: {
     terminalName: (n) => `Terminal ${n}`,
@@ -70,10 +67,7 @@ const dict = {
     settingsCursor: 'Cursor',
     cursorBar: 'Bar (default)',
     cursorBlock: 'Block',
-    cursorUnderline: 'Underline',
-    cursorGroupNative: 'Classic',
-    cursorGroupAnimals: 'Animals',
-    cursorGroupFighters: 'Fighters'
+    cursorUnderline: 'Underline'
   }
 }
 

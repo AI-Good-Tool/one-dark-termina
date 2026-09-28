@@ -52,6 +52,10 @@ export const currentTheme = ref(oneDarkTheme)
 // 字体类图标主题的字体族名（空 = 未启用字体类图标主题）
 export const iconFontFamily = ref('')
 
+// 光标样式（经典：bar 竖线 / block 方块 / underline 下划线），
+// 所有终端标签页共享，设置面板修改后实时生效
+export const cursorStyle = ref('bar')
+
 // 应用扩展颜色主题：与内置 One Dark 合并（主题里缺省的键用内置兜底）
 export function applyTermTheme(ext) {
   if (ext && ext.theme && typeof ext.theme === 'object') {
