@@ -519,15 +519,25 @@ function onMoveKey(e) {
             :style="{ flexGrow: tab.sizes[i] ?? 1 }"
             @mousedown="focusPane(tab, i)"
           >
-            <TerminalTab
-              :ref="(inst) => setPaneRef(pane.id, inst)"
-              :session-id="pane.id"
-              :active="tab.id === activeId && i === tab.activePane"
-              :attach="pane.attach"
-              @exit="onPaneExit(tab.id, pane.id)"
-              @title="onTitle(pane.id, $event)"
-              @contextmenu="onPaneContextMenu(tab, pane, $event)"
-            />
+            <!-- 分屏时的窗格标题栏（仿 iTerm）：显示各会话标题，点击激活 -->
+            <div
+              v-if="tab.panes.length > 1"
+              class="pane-header"
+              :class="{ active: i === tab.activePane }"
+            >
+              <span class="pane-header-title">{{ pane.title || tab.name }}</span>
+            </div>
+            <div class="pane-body">
+              <TerminalTab
+                :ref="(inst) => setPaneRef(pane.id, inst)"
+                :session-id="pane.id"
+                :active="tab.id === activeId && i === tab.activePane"
+                :attach="pane.attach"
+                @exit="onPaneExit(tab.id, pane.id)"
+                @title="onTitle(pane.id, $event)"
+                @contextmenu="onPaneContextMenu(tab, pane, $event)"
+              />
+            </div>
           </div>
           <div
             v-if="i < tab.panes.length - 1"
@@ -759,6 +769,40 @@ function onMoveKey(e) {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 分屏窗格标题栏（仿 iTerm 的 per-pane title） */
+.pane-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  font-size: 11px;
+  color: var(--fg-dim);
+  background: var(--bg-darker);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.pane-header.active {
+  color: var(--fg);
+  box-shadow: inset 0 2px 0 var(--blue);
+}
+
+.pane-header-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-body {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
 
 .pane-wrap.dimmed::after {

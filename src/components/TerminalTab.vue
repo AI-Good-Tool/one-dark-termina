@@ -1,3 +1,13 @@
+<script>
+// ---- WebGL 上下文管控（模块级，跨组件实例共享计数）----
+// WKWebView 对 WebGL 上下文数有进程级上限，超限会强制回收最老的上下文
+//（分屏合并约 6 个窗格后必现：被回收的窗格黑屏/花屏）。两道防线：
+// 1) 每窗口只给前 MAX_WEBGL 个终端用 WebGL，其余用内置 canvas 渲染器；
+// 2) 上下文被系统回收时（onContextLoss）dispose 掉 addon，自动回退 canvas。
+const MAX_WEBGL = 4
+let webglActive = 0
+</script>
+
 <script setup>
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
@@ -72,11 +82,35 @@ function feedPtyData(data) {
 const el = ref(null)
 let term = null
 let fit = null
+let webgl = null
 let unlistenData = null
 let unlistenExit = null
 let unlistenDrag = null
 let observer = null
 let spawned = false
+
+function setupWebGL() {
+  if (webglActive >= MAX_WEBGL) return
+  try {
+    const addon = new WebglAddon()
+    addon.onContextLoss(() => {
+      // dispose 会把渲染器换回内置 canvas（addon 内部 setRenderer(_createRenderer())）
+      try {
+        addon.dispose()
+      } catch {
+        /* 已释放 */
+      }
+      if (webgl === addon) webgl = null
+      webglActive = Math.max(0, webglActive - 1)
+    })
+    term.loadAddon(addon)
+    webgl = addon
+    webglActive++
+  } catch {
+    /* WebGL 不可用时回退 canvas 渲染 */
+    webgl = null
+  }
+}
 
 // ---- 光标样式（经典：竖线 / 方块 / 下划线），非法值回退竖线 ----
 const NATIVE_CURSOR_STYLES = ['bar', 'block', 'underline']
@@ -176,11 +210,7 @@ onMounted(async () => {
     /* 内部结构变化时忽略，仅表现为悬停出现下划线 */
   }
 
-  try {
-    term.loadAddon(new WebglAddon())
-  } catch {
-    /* WebGL 不可用时回退 canvas 渲染 */
-  }
+  setupWebGL()
 
   doResize()
 
@@ -237,8 +267,21 @@ onMounted(async () => {
         id: props.sessionId,
         window: windowLabel
       })
-      if (backlog) term.write(backlog)
       spawned = true
+      if (backlog) {
+        term.write(backlog, () => {
+          // 回放按旧窗口尺寸记录的原始字节流，瞬态显示状态（如 zsh 部分行
+          // 的 % 反显标记）会残留成花屏块；写完后强制全量重绘
+          term.refresh(0, term.rows - 1)
+        })
+      }
+      // 初始 fit 时 spawned 还是 false，onResize 不会上报；attach 后主动同步
+      // 一次尺寸：尺寸变化会触发 SIGWINCH，shell 重绘出干净的提示符
+      invoke('pty_resize', {
+        id: props.sessionId,
+        cols: term.cols,
+        rows: term.rows
+      }).catch(() => {})
     } catch {
       // 会话已不存在：当作新会话启动
       await invoke('pty_spawn', {
@@ -341,6 +384,10 @@ onBeforeUnmount(() => {
     } else {
       invoke('pty_kill', { id: props.sessionId })
     }
+  }
+  if (webgl) {
+    webgl = null
+    webglActive = Math.max(0, webglActive - 1)
   }
   term?.dispose()
 })
