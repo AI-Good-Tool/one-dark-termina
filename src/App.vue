@@ -526,6 +526,12 @@ function onMoveKey(e) {
               :class="{ active: i === tab.activePane }"
             >
               <span class="pane-header-title">{{ pane.title || tab.name }}</span>
+              <span
+                class="pane-close"
+                :title="t('closeTab')"
+                @click.stop="closePane(tab.id, pane.id)"
+                @mousedown.stop
+              >×</span>
             </div>
             <div class="pane-body">
               <TerminalTab
@@ -778,8 +784,10 @@ function onMoveKey(e) {
   flex: none;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   height: 24px;
-  padding: 0 10px;
+  padding: 0 6px 0 10px;
   font-size: 11px;
   color: var(--fg-dim);
   background: var(--bg-darker);
@@ -796,6 +804,23 @@ function onMoveKey(e) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+}
+
+.pane-close {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  line-height: 14px;
+  text-align: center;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.pane-close:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #e06c75;
 }
 
 .pane-body {

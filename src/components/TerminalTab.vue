@@ -55,6 +55,39 @@ function handleOdtLink(uri) {
   }
 }
 
+// 终端里点击链接：http(s) 用系统默认浏览器打开；odt:// 走内置行为
+function handleLinkClick(uri) {
+  if (/^https?:\/\//i.test(uri)) {
+    invoke('open_in_browser', { url: uri }).catch(() => {})
+    return
+  }
+  handleOdtLink(uri)
+}
+
+// ---- http(s) 链接着色（One Dark 蓝）----
+// 自动识别的 web 链接 xterm 不会改文字颜色，只能在上游数据流里包 SGR。
+// URL 可能跨数据包：末尾疑似半个 URL 时扣住等下一块，空闲 800ms 后按完整输出。
+const URL_RE = /https?:\/\/[^\s\x1b\x07"'<>()[\]{}]+/g
+const URL_TAIL_RE = /https?:\/\/[^\s\x1b\x07"'<>()[\]{}]{2,}$/
+const URL_COLOR = '\x1b[38;2;86;182;244m' // One Dark blue (#56b6f4 提亮)
+let urlHold = ''
+let urlFlushTimer = null
+
+function scheduleUrlFlush() {
+  clearTimeout(urlFlushTimer)
+  urlFlushTimer = setTimeout(() => {
+    if (urlHold) {
+      const u = urlHold
+      urlHold = ''
+      term?.write(`${URL_COLOR}${u}\x1b[39m`)
+    }
+  }, 800)
+}
+
+function colorizeUrls(s) {
+  return s.replace(URL_RE, (m) => `${URL_COLOR}${m}\x1b[39m`)
+}
+
 // ---- 拖入文件/文件夹：在输入行插入路径（仿 macOS 终端）----
 // 只含安全字符的路径原样插入；否则单引号包裹（内部单引号按 shell 规则转义）
 function shellQuote(p) {
@@ -76,6 +109,18 @@ function feedPtyData(data) {
     openEditorWindow(p)
     return ''
   })
+  // URL 着色：末尾疑似没传完的 URL 扣住等下一块（空闲超时后按完整 URL 输出）
+  s = urlHold + s
+  urlHold = ''
+  const tail = URL_TAIL_RE.exec(s)
+  if (tail) {
+    urlHold = tail[0]
+    s = s.slice(0, s.length - urlHold.length)
+    scheduleUrlFlush()
+  } else {
+    clearTimeout(urlFlushTimer)
+  }
+  s = colorizeUrls(s)
   if (s) term.write(s)
 }
 
@@ -160,7 +205,7 @@ onMounted(async () => {
     linkHandler: {
       allowNonHttpProtocols: true,
       activate(_event, uri) {
-        handleOdtLink(uri)
+        handleLinkClick(uri)
       },
       hover() {},
       leave() {}
@@ -268,20 +313,23 @@ onMounted(async () => {
         window: windowLabel
       })
       spawned = true
-      if (backlog) {
-        term.write(backlog, () => {
-          // 回放按旧窗口尺寸记录的原始字节流，瞬态显示状态（如 zsh 部分行
-          // 的 % 反显标记）会残留成花屏块；写完后强制全量重绘
-          term.refresh(0, term.rows - 1)
-        })
+      // 回放完毕后再同步尺寸：初始 fit 时 spawned=false，onResize 不会上报。
+      // resize 触发 SIGWINCH（尺寸未变时 Rust 侧手动补发），shell 重绘提示符。
+      const syncSize = () => {
+        invoke('pty_resize', {
+          id: props.sessionId,
+          cols: term.cols,
+          rows: term.rows
+        }).catch(() => {})
       }
-      // 初始 fit 时 spawned 还是 false，onResize 不会上报；attach 后主动同步
-      // 一次尺寸：尺寸变化会触发 SIGWINCH，shell 重绘出干净的提示符
-      invoke('pty_resize', {
-        id: props.sessionId,
-        cols: term.cols,
-        rows: term.rows
-      }).catch(() => {})
+      if (backlog) {
+        // 回放是按旧窗口尺寸记录的原始字节流，瞬态显示状态（如 zsh 部分行
+        // 的 % 反显标记）在新尺寸下会残留成花屏块；回放后清掉可见屏
+        //（滚屏历史保留），由 SIGWINCH 让 shell 重绘出干净屏幕
+        term.write(colorizeUrls(backlog) + '\x1b[2J\x1b[H', syncSize)
+      } else {
+        syncSize()
+      }
     } catch {
       // 会话已不存在：当作新会话启动
       await invoke('pty_spawn', {
@@ -375,6 +423,7 @@ onBeforeUnmount(() => {
   unlistenData?.()
   unlistenExit?.()
   unlistenDrag?.()
+  clearTimeout(urlFlushTimer)
   // 被移动（分屏/新标签页/拖出到新窗口）的会话带有 detached 标记：
   // 本次卸载不杀 PTY，并把标记消费掉——之后新挂载的组件再卸载时照常 kill，
   // 否则标记残留会导致最终关闭窗格时 shell 泄漏。
@@ -401,7 +450,8 @@ onBeforeUnmount(() => {
 .term-host {
   position: absolute;
   inset: 0;
-  padding: 8px 4px 8px 12px;
+  /* 右侧预留滚动条空间（8px 滚动条 + 边距），避免出现时压住最后一列 */
+  padding: 8px 12px 8px 12px;
 }
 
 .term-host :deep(.xterm) {
@@ -409,11 +459,24 @@ onBeforeUnmount(() => {
 }
 
 .term-host :deep(.xterm-viewport) {
-  /* 隐藏滚动条（保留滚轮滚动能力） */
-  scrollbar-width: none;
+  /* 覆盖 xterm 默认的 overflow-y: scroll：内容超高时才出滚动条 */
+  overflow-y: auto;
 }
 
 .term-host :deep(.xterm-viewport)::-webkit-scrollbar {
-  display: none;
+  width: 8px;
+}
+
+.term-host :deep(.xterm-viewport)::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+}
+
+.term-host :deep(.xterm-viewport)::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.term-host :deep(.xterm-viewport)::-webkit-scrollbar-track {
+  background: transparent;
 }
 </style>

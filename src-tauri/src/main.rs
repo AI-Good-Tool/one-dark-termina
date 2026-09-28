@@ -16,12 +16,14 @@ use tauri::{AppHandle, Emitter, Manager, State};
 struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
-    #[allow(dead_code)]
     child: Box<dyn Child + Send + Sync>,
     /// 所属窗口标签：窗口销毁时只清理自己的会话（拖出移动后会更新）
     window: String,
     /// 最近的终端输出（拖出移动到新窗口时回放），上限 256KB
     backlog: String,
+    /// 当前 PTY 尺寸：resize 尺寸未变时内核不发 SIGWINCH，需要手动补发
+    cols: u16,
+    rows: u16,
 }
 
 struct AppState {
@@ -177,6 +179,8 @@ fn pty_spawn(
             child,
             window,
             backlog: String::new(),
+            cols,
+            rows,
         },
     );
     drop(sessions);
@@ -245,8 +249,18 @@ fn pty_write(state: State<'_, AppState>, id: &str, data: &str) -> Result<(), Str
 
 #[tauri::command]
 fn pty_resize(state: State<'_, AppState>, id: &str, cols: u16, rows: u16) -> Result<(), String> {
-    let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
-    if let Some(s) = sessions.get(id) {
+    let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+    if let Some(s) = sessions.get_mut(id) {
+        if s.cols == cols && s.rows == rows {
+            // 尺寸未变时 TIOCSWINSZ 不产生 SIGWINCH；attach 回放清屏后需要
+            // shell 强制重绘提示符（跨窗口同尺寸移动的场景），手动补发
+            if let Some(pid) = s.child.process_id() {
+                unsafe {
+                    libc::kill(pid as i32, libc::SIGWINCH);
+                }
+            }
+            return Ok(());
+        }
         s.master
             .resize(PtySize {
                 rows,
@@ -255,7 +269,34 @@ fn pty_resize(state: State<'_, AppState>, id: &str, cols: u16, rows: u16) -> Res
                 pixel_height: 0,
             })
             .map_err(|e| e.to_string())?;
+        s.cols = cols;
+        s.rows = rows;
     }
+    Ok(())
+}
+
+/// 用系统默认浏览器打开 http/https 链接（终端里点击 URL）
+#[tauri::command]
+fn open_in_browser(url: String) -> Result<(), String> {
+    // 只允许 http/https，避免被当成文件路径或恶意协议
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("仅支持 http/https 链接".to_string());
+    }
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg(&url)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", &url])
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    #[cfg(all(unix, not(target_os = "macos")))]
+    std::process::Command::new("xdg-open")
+        .arg(&url)
+        .spawn()
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -609,6 +650,7 @@ fn main() {
             pty_kill,
             pty_attach,
             pty_move_to_new_window,
+            open_in_browser,
             terminal_window_count,
             read_text_file,
             write_text_file,
