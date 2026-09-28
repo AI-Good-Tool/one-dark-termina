@@ -351,7 +351,11 @@ onMounted(async () => {
   }
 
   observer = new ResizeObserver(() => {
-    if (props.active) doResize()
+    // 可见才 fit：非激活标签页是 display:none（fit 得 0 尺寸会抛错）；
+    // 分屏里的非激活窗格是可见的，也必须同步尺寸——否则它的 PTY 尺寸
+    // 停留在分屏前，直到被点击才修正（期间运行 ls 等按宽度排版的命令会错乱）
+    const host = el.value
+    if (host && host.clientWidth > 0 && host.clientHeight > 0) doResize()
   })
   observer.observe(el.value)
 
