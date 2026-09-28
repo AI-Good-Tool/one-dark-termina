@@ -26,7 +26,7 @@ const props = defineProps({
   // 附着模式：复用已存在的 PTY 会话（标签被拖出移动到新窗口），不重启 shell
   attach: { type: Boolean, default: false }
 })
-const emit = defineEmits(['exit', 'title'])
+const emit = defineEmits(['exit', 'title', 'contextmenu'])
 
 // ---- ls 输出的 OSC8 链接：点目录=cd 进入，点文件=编辑器窗口打开 ----
 function handleOdtLink(uri) {
@@ -292,6 +292,41 @@ watch(iconFontFamily, () => {
   }
 })
 
+// ---- 终端内容区右键：屏蔽 WKWebView 原生英文菜单，交给 App 弹自定义菜单 ----
+function onContextMenu(e) {
+  e.preventDefault()
+  emit('contextmenu', {
+    x: e.clientX,
+    y: e.clientY,
+    hasSelection: term ? term.hasSelection() : false
+  })
+}
+
+// 供 App 的右键菜单调用
+defineExpose({
+  copySelection() {
+    if (term?.hasSelection()) {
+      navigator.clipboard.writeText(term.getSelection()).catch(() => {})
+      term.clearSelection()
+    }
+  },
+  async paste() {
+    try {
+      const text = await navigator.clipboard.readText()
+      if (text && spawned) invoke('pty_write', { id: props.sessionId, data: text })
+    } catch {
+      /* 剪贴板不可读时忽略 */
+    }
+    term?.focus()
+  },
+  selectAll() {
+    term?.selectAll()
+  },
+  focusTerm() {
+    term?.focus()
+  }
+})
+
 onBeforeUnmount(() => {
   observer?.disconnect()
   unlistenData?.()
@@ -312,7 +347,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="el" class="term-host"></div>
+  <div ref="el" class="term-host" @contextmenu="onContextMenu"></div>
 </template>
 
 <style scoped>

@@ -44,7 +44,10 @@ const dict = {
     moveToNewTab: '移动会话到新标签页',
     movePickSource: '点击源窗格取消',
     movePickDest: '选择目标窗格',
-    moveEscHint: '按 Esc 取消移动'
+    moveEscHint: '按 Esc 取消移动',
+    ctxCopy: '复制',
+    ctxPaste: '粘贴',
+    ctxSelectAll: '全选'
   },
   en: {
     terminalName: (n) => `Terminal ${n}`,
@@ -77,7 +80,10 @@ const dict = {
     moveToNewTab: 'Move Session to New Tab',
     movePickSource: 'Click to move source',
     movePickDest: 'Select a destination pane',
-    moveEscHint: 'Press Esc to cancel'
+    moveEscHint: 'Press Esc to cancel',
+    ctxCopy: 'Copy',
+    ctxPaste: 'Paste',
+    ctxSelectAll: 'Select All'
   }
 }
 

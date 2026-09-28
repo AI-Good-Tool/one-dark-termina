@@ -207,18 +207,55 @@ function startDividerDrag(tab, i, e) {
   window.addEventListener('mouseup', onUp)
 }
 
-// ---- 标签右键菜单 ----
-const menu = ref(null) // { x, y, tabId }
+// ---- 右键菜单（标签 / 终端内容区共用）----
+// kind: 'tab' 只有移动类操作；'pane' 额外有复制/粘贴/全选
+const menu = ref(null) // { x, y, kind, tabId, paneId, hasSelection }
 const menuTab = computed(() => (menu.value ? findTab(menu.value.tabId) : null))
+
+// 各窗格 TerminalTab 实例（右键菜单的复制/粘贴/全选要调它的方法）
+const paneRefs = new Map()
+const setPaneRef = (id, inst) => {
+  if (inst) paneRefs.set(id, inst)
+  else paneRefs.delete(id)
+}
+
+function clampMenuPos(x, y) {
+  return {
+    x: Math.min(x, window.innerWidth - 230),
+    y: Math.min(y, window.innerHeight - 200)
+  }
+}
 
 function onTabContextMenu(tab, e) {
   e.preventDefault()
   activeId.value = tab.id
+  const pane = tab.panes[tab.activePane]
   menu.value = {
-    x: Math.min(e.clientX, window.innerWidth - 220),
-    y: Math.min(e.clientY, window.innerHeight - 80),
-    tabId: tab.id
+    ...clampMenuPos(e.clientX, e.clientY),
+    kind: 'tab',
+    tabId: tab.id,
+    paneId: pane?.id,
+    hasSelection: false
   }
+}
+
+function onPaneContextMenu(tab, pane, payload) {
+  activeId.value = tab.id
+  const idx = tab.panes.findIndex((p) => p.id === pane.id)
+  if (idx !== -1) tab.activePane = idx
+  menu.value = {
+    ...clampMenuPos(payload.x, payload.y),
+    kind: 'pane',
+    tabId: tab.id,
+    paneId: pane.id,
+    hasSelection: payload.hasSelection
+  }
+}
+
+function menuAction(fn) {
+  const inst = menu.value && paneRefs.get(menu.value.paneId)
+  menu.value = null
+  if (inst) fn(inst)
 }
 
 // ---- 移动会话到分屏（仿 iTerm Move Session to Split Pane）----
@@ -228,15 +265,20 @@ const moveState = ref(null) // { srcTabId, srcPaneIdx }
 function startMoveFromMenu() {
   const tab = menuTab.value
   if (!tab) return
-  moveState.value = { srcTabId: tab.id, srcPaneIdx: tab.activePane }
+  const idx = tab.panes.findIndex((p) => p.id === menu.value.paneId)
+  moveState.value = { srcTabId: tab.id, srcPaneIdx: idx === -1 ? tab.activePane : idx }
   menu.value = null
 }
 
 function moveToNewTabFromMenu() {
   const tab = menuTab.value
+  if (!tab || tab.panes.length < 2) {
+    menu.value = null
+    return
+  }
+  const found = tab.panes.findIndex((p) => p.id === menu.value.paneId)
+  const idx = found === -1 ? tab.activePane : found
   menu.value = null
-  if (!tab || tab.panes.length < 2) return
-  const idx = tab.activePane
   const pane = tab.panes[idx]
   detachedSessions.add(pane.id)
   const freed = tab.sizes[idx] ?? 1
@@ -384,11 +426,13 @@ function onMoveKey(e) {
             @mousedown="focusPane(tab, i)"
           >
             <TerminalTab
+              :ref="(inst) => setPaneRef(pane.id, inst)"
               :session-id="pane.id"
               :active="tab.id === activeId && i === tab.activePane"
               :attach="pane.attach"
               @exit="onPaneExit(tab.id, pane.id)"
               @title="onTitle(pane.id, $event)"
+              @contextmenu="onPaneContextMenu(tab, pane, $event)"
             />
           </div>
           <div
@@ -421,7 +465,7 @@ function onMoveKey(e) {
         </div>
       </div>
     </div>
-    <!-- 标签右键菜单 -->
+    <!-- 右键菜单（标签 / 终端内容区） -->
     <div
       v-if="menu"
       class="ctx-backdrop"
@@ -429,6 +473,22 @@ function onMoveKey(e) {
       @contextmenu.prevent="menu = null"
     >
       <div class="ctx-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop>
+        <template v-if="menu.kind === 'pane'">
+          <button
+            class="ctx-item"
+            :disabled="!menu.hasSelection"
+            @click="menuAction((i) => i.copySelection())"
+          >
+            {{ t('ctxCopy') }}
+          </button>
+          <button class="ctx-item" @click="menuAction((i) => i.paste())">
+            {{ t('ctxPaste') }}
+          </button>
+          <button class="ctx-item" @click="menuAction((i) => i.selectAll())">
+            {{ t('ctxSelectAll') }}
+          </button>
+          <div class="ctx-sep"></div>
+        </template>
         <button
           class="ctx-item"
           :disabled="totalPanes < 2"
@@ -765,5 +825,11 @@ function onMoveKey(e) {
 .ctx-item:disabled {
   color: var(--fg-dim);
   cursor: default;
+}
+
+.ctx-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--border);
 }
 </style>
