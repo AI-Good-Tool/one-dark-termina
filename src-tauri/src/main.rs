@@ -26,6 +26,9 @@ struct PtySession {
 
 struct AppState {
     sessions: Mutex<HashMap<String, PtySession>>,
+    /// 启动参数传入的初始目录（如 `open -na "One Dark Terminal" --args /path`），
+    /// 由首个 pty_spawn 消费一次，之后的标签/窗口仍落在 HOME
+    initial_cwd: Mutex<Option<String>>,
 }
 
 /// 把字节流按 UTF-8 最大有效前缀解码，残余不完整字节留给下一包
@@ -142,8 +145,19 @@ fn pty_spawn(
         cmd.env("TZ", &app_settings.timezone);
     }
 
-    if let Ok(cwd) = std::env::var("HOME") {
-        cmd.cwd(cwd);
+    // 优先使用启动参数指定的目录（仅首次 spawn 生效），否则落 HOME
+    let initial = state
+        .initial_cwd
+        .lock()
+        .ok()
+        .and_then(|mut g| g.take());
+    match initial {
+        Some(dir) => cmd.cwd(dir),
+        None => {
+            if let Ok(home) = std::env::var("HOME") {
+                cmd.cwd(home);
+            }
+        }
     }
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
@@ -485,10 +499,17 @@ fn read_file_bytes(path: &str) -> Result<Vec<u8>, String> {
 }
 
 fn main() {
+    // 启动参数中的第一个有效目录作为初始工作目录（供"右键在此打开"使用）：
+    //   open -na "One Dark Terminal" --args /some/dir
+    let initial_cwd = std::env::args()
+        .skip(1)
+        .find(|a| !a.starts_with('-') && std::path::Path::new(a).is_dir());
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             sessions: Mutex::new(HashMap::new()),
+            initial_cwd: Mutex::new(initial_cwd),
         })
         .setup(|app| {
             // 原生菜单：App 菜单里 About 与 Services 之间插入 Settings…（Cmd+,）
