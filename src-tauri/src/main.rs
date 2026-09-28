@@ -342,20 +342,23 @@ fn pty_attach(state: State<'_, AppState>, id: &str, window: &str) -> Result<Stri
     }
 }
 
-/// 把某个标签的会话移动到新窗口：先更新归属（避免旧窗口销毁时误杀），再开新窗
+/// 把某些标签的会话移动到新窗口（支持整组分屏窗格一起拖出）：
+/// 先更新归属（避免旧窗口销毁时误杀），再开新窗统一附着
 #[tauri::command]
 fn pty_move_to_new_window(
     app: AppHandle,
     state: State<'_, AppState>,
-    id: &str,
+    ids: Vec<String>,
 ) -> Result<(), String> {
     let label = new_window_label();
     {
         let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
-        let s = sessions.get_mut(id).ok_or("会话不存在")?;
-        s.window = label.clone();
+        for id in &ids {
+            let s = sessions.get_mut(id).ok_or("会话不存在")?;
+            s.window = label.clone();
+        }
     }
-    build_window(&app, &label, &format!("index.html?attach={id}"))
+    build_window(&app, &label, &format!("index.html?attach={}", ids.join(",")))
 }
 
 // ---------------- 编辑器窗口的文件读写 ----------------

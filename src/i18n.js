@@ -39,7 +39,12 @@ const dict = {
     settingsCursor: '光标',
     cursorBar: '竖线（默认）',
     cursorBlock: '方块',
-    cursorUnderline: '下划线'
+    cursorUnderline: '下划线',
+    moveToSplitPane: '移动会话到分屏…',
+    moveToNewTab: '移动会话到新标签页',
+    movePickSource: '点击源窗格取消',
+    movePickDest: '选择目标窗格',
+    moveEscHint: '按 Esc 取消移动'
   },
   en: {
     terminalName: (n) => `Terminal ${n}`,
@@ -67,7 +72,12 @@ const dict = {
     settingsCursor: 'Cursor',
     cursorBar: 'Bar (default)',
     cursorBlock: 'Block',
-    cursorUnderline: 'Underline'
+    cursorUnderline: 'Underline',
+    moveToSplitPane: 'Move Session to Split Pane…',
+    moveToNewTab: 'Move Session to New Tab',
+    movePickSource: 'Click to move source',
+    movePickDest: 'Select a destination pane',
+    moveEscHint: 'Press Esc to cancel'
   }
 }
 

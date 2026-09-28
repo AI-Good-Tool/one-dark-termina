@@ -210,9 +210,16 @@ onMounted(async () => {
 
   // 拖入文件/文件夹 → 插入 shell 转义后的路径（多个以空格分隔，末尾补空格）。
   // Tauri 2 的 webview 会拦截 HTML5 drop，需走 onDragDropEvent 拿完整路径。
-  // 多标签共用同一 webview 事件，只有当前激活标签响应。
+  // 分屏后多个窗格共用同一 webview 事件：按落点坐标命中对应窗格
+  //（payload.position 是物理像素，getBoundingClientRect 是 CSS 像素，需换算）。
   unlistenDrag = await getCurrentWebview().onDragDropEvent((e) => {
-    if (e.payload.type !== 'drop' || !props.active || !spawned) return
+    if (e.payload.type !== 'drop' || !spawned) return
+    const rect = el.value?.getBoundingClientRect()
+    if (!rect || rect.width === 0) return
+    const scale = window.devicePixelRatio || 1
+    const x = e.payload.position.x / scale
+    const y = e.payload.position.y / scale
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return
     const paths = e.payload.paths || []
     if (!paths.length) return
     invoke('pty_write', {
@@ -290,9 +297,15 @@ onBeforeUnmount(() => {
   unlistenData?.()
   unlistenExit?.()
   unlistenDrag?.()
-  // 拖出移动的会话已移交新窗口，这里不杀 PTY
-  if (spawned && !detachedSessions.has(props.sessionId)) {
-    invoke('pty_kill', { id: props.sessionId })
+  // 被移动（分屏/新标签页/拖出到新窗口）的会话带有 detached 标记：
+  // 本次卸载不杀 PTY，并把标记消费掉——之后新挂载的组件再卸载时照常 kill，
+  // 否则标记残留会导致最终关闭窗格时 shell 泄漏。
+  if (spawned) {
+    if (detachedSessions.has(props.sessionId)) {
+      detachedSessions.delete(props.sessionId)
+    } else {
+      invoke('pty_kill', { id: props.sessionId })
+    }
   }
   term?.dispose()
 })
