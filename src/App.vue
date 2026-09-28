@@ -5,7 +5,7 @@ import TerminalTab from './components/TerminalTab.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import { t, setLocale } from './i18n'
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+import { listen, emit } from '@tauri-apps/api/event'
 import { applyTermTheme, iconFontFamily } from './theme'
 import { detachedSessions } from './sessions'
 
@@ -51,10 +51,23 @@ const tabs = ref(
 const activeId = ref(tabs.value[0].id)
 const showSettings = ref(false)
 const termArea = ref(null)
+const myLabel = getCurrentWindow().label
 
 const findTab = (tabId) => tabs.value.find((t) => t.id === tabId)
 const totalPanes = computed(() => tabs.value.reduce((n, t) => n + t.panes.length, 0))
 const displayTitle = (tab) => tab.panes[tab.activePane]?.title || tab.name
+
+// 其他终端窗口数量：跨窗口移动可用性的依据（编辑器窗口不计入）
+const otherWindows = ref(0)
+async function refreshWindows() {
+  try {
+    otherWindows.value = Math.max(0, (await invoke('terminal_window_count')) - 1)
+  } catch {
+    /* 查询失败则按无其他窗口处理 */
+  }
+}
+// 本窗口 ≥2 个会话，或存在其他终端窗口时，移动可用
+const canMove = computed(() => totalPanes.value >= 2 || otherWindows.value > 0)
 
 // 原生侧读取语言偏好（含系统设置里的 App 级语言），校正首个标签名
 invoke('get_locale').then((lang) => {
@@ -82,6 +95,37 @@ onMounted(async () => {
   // 原生菜单 Settings…（Cmd+,）打开设置面板
   await listen('menu-open-settings', () => {
     showSettings.value = true
+  })
+  refreshWindows()
+  // ---- 跨窗口"移动会话到分屏"的窗口间广播 ----
+  // 别的窗口发起移动：本窗口进入远程移动模式，本地窗格全部作为绿色目标
+  await listen('odt-move-start', (e) => {
+    refreshWindows()
+    if (e.payload.srcWindow === myLabel) return
+    moveState.value = {
+      remote: true,
+      srcWindow: e.payload.srcWindow,
+      sessionId: e.payload.sessionId,
+      title: e.payload.title
+    }
+  })
+  // 移动结束（完成/取消）：所有窗口退出移动模式
+  await listen('odt-move-end', () => {
+    moveState.value = null
+  })
+  // 目标窗口已接管会话归属：持有该会话的窗口摘除对应窗格（不杀 PTY）。
+  // emit 会回投给发起窗口自己，目标窗口须跳过，否则会把刚插入的窗格又摘掉。
+  await listen('odt-move-taken', (e) => {
+    if (e.payload.dstWindow === myLabel) return
+    for (const tab of tabs.value) {
+      const idx = tab.panes.findIndex((p) => p.id === e.payload.sessionId)
+      if (idx !== -1) {
+        detachedSessions.add(tab.panes[idx].id)
+        closePane(tab.id, tab.panes[idx].id)
+        break
+      }
+    }
+    if (moveState.value && !moveState.value.remote) moveState.value = null
   })
   // 拖拽标签时持续记录鼠标屏幕坐标（dragend 的坐标可能不可靠）
   document.addEventListener('dragover', (e) => {
@@ -228,6 +272,7 @@ function clampMenuPos(x, y) {
 
 function onTabContextMenu(tab, e) {
   e.preventDefault()
+  refreshWindows()
   activeId.value = tab.id
   const pane = tab.panes[tab.activePane]
   menu.value = {
@@ -240,6 +285,7 @@ function onTabContextMenu(tab, e) {
 }
 
 function onPaneContextMenu(tab, pane, payload) {
+  refreshWindows()
   activeId.value = tab.id
   const idx = tab.panes.findIndex((p) => p.id === pane.id)
   if (idx !== -1) tab.activePane = idx
@@ -258,16 +304,23 @@ function menuAction(fn) {
   if (inst) fn(inst)
 }
 
-// ---- 移动会话到分屏（仿 iTerm Move Session to Split Pane）----
-// 进入移动模式后展示目标选择覆盖层：红色=源窗格（点击取消），绿色=目标窗格
-const moveState = ref(null) // { srcTabId, srcPaneIdx }
+// ---- 移动会话到分屏（仿 iTerm Move Session to Split Pane，支持跨窗口）----
+// 进入移动模式后展示目标选择覆盖层：红色=源窗格（点击取消），绿色=目标窗格；
+// 发起时广播 odt-move-start，其他终端窗口同步进入远程移动模式展示本地目标。
+const moveState = ref(null)
+// 本地: { srcTabId, srcPaneIdx, sessionId, title }
+// 远程: { remote: true, srcWindow, sessionId, title }
 
 function startMoveFromMenu() {
   const tab = menuTab.value
   if (!tab) return
   const idx = tab.panes.findIndex((p) => p.id === menu.value.paneId)
-  moveState.value = { srcTabId: tab.id, srcPaneIdx: idx === -1 ? tab.activePane : idx }
+  const srcPaneIdx = idx === -1 ? tab.activePane : idx
+  const pane = tab.panes[srcPaneIdx]
+  const title = pane.title || tab.name
+  moveState.value = { srcTabId: tab.id, srcPaneIdx, sessionId: pane.id, title }
   menu.value = null
+  emit('odt-move-start', { srcWindow: myLabel, sessionId: pane.id, title }).catch(() => {})
 }
 
 function moveToNewTabFromMenu() {
@@ -299,18 +352,57 @@ function moveToNewTabFromMenu() {
 }
 
 const isMoveSrc = (tabId, i) =>
-  moveState.value && moveState.value.srcTabId === tabId && moveState.value.srcPaneIdx === i
+  moveState.value &&
+  !moveState.value.remote &&
+  moveState.value.srcTabId === tabId &&
+  moveState.value.srcPaneIdx === i
 
 function cancelMove() {
+  if (!moveState.value) return
   moveState.value = null
+  emit('odt-move-end', {}).catch(() => {})
 }
 
 function onMoveTileClick(tabId, i) {
+  const st = moveState.value
+  if (!st) return
+  if (st.remote) {
+    doRemoteMove(tabId, i)
+    return
+  }
   if (isMoveSrc(tabId, i)) {
     cancelMove()
     return
   }
   doMove(tabId, i)
+}
+
+// 跨窗口：把别窗的会话移入本窗口某窗格旁（先接管归属，再通知源窗口摘除）
+async function doRemoteMove(dstTabId, dstIdx) {
+  const st = moveState.value
+  if (!st?.remote) return
+  const dstTab = findTab(dstTabId)
+  if (!dstTab) return
+  try {
+    await invoke('pty_attach', { id: st.sessionId, window: myLabel })
+  } catch {
+    /* 会话已不存在：新窗格 attach 失败会回退为新 shell */
+  }
+  if (dstTab.panes.length === 1) {
+    const r = termArea.value?.getBoundingClientRect()
+    dstTab.dir = r && r.width < r.height ? 'column' : 'row'
+  }
+  const half = (dstTab.sizes[dstIdx] ?? 1) / 2
+  dstTab.sizes[dstIdx] = half
+  const insertAt = dstIdx + 1
+  dstTab.sizes.splice(insertAt, 0, half)
+  dstTab.panes.splice(insertAt, 0, newPane({ id: st.sessionId, title: st.title, attach: true }))
+  dstTab.activePane = insertAt
+  activeId.value = dstTab.id
+  moveState.value = null
+  // 先 taken（源窗口摘除窗格）后 end（所有窗口退出移动模式），顺序不能反
+  await emit('odt-move-taken', { sessionId: st.sessionId, dstWindow: myLabel }).catch(() => {})
+  emit('odt-move-end', {}).catch(() => {})
 }
 
 function doMove(dstTabId, dstIdxRaw) {
@@ -354,6 +446,8 @@ function doMove(dstTabId, dstIdxRaw) {
   dstTab.activePane = insertAt
   activeId.value = dstTab.id
   moveState.value = null
+  // 本地移动完成：通知其他窗口退出远程移动模式
+  emit('odt-move-end', {}).catch(() => {})
 }
 
 // 移动模式下 Esc 取消
@@ -445,6 +539,7 @@ function onMoveKey(e) {
       </div>
       <!-- 移动会话：目标选择覆盖层 -->
       <div v-if="moveState" class="move-overlay">
+        <div v-if="moveState.remote" class="move-incoming">{{ t('moveIncoming', moveState.title) }}</div>
         <div class="move-esc">{{ t('moveEscHint') }}</div>
         <div class="move-groups">
           <div v-for="tab in tabs" :key="tab.id" class="move-group">
@@ -491,7 +586,7 @@ function onMoveKey(e) {
         </template>
         <button
           class="ctx-item"
-          :disabled="totalPanes < 2"
+          :disabled="!canMove"
           @click="startMoveFromMenu"
         >
           {{ t('moveToSplitPane') }}
@@ -712,6 +807,12 @@ function onMoveKey(e) {
 .move-esc {
   font-size: 12px;
   color: var(--fg-dim);
+}
+
+.move-incoming {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
 }
 
 .move-groups {

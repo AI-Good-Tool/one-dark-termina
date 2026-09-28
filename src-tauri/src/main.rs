@@ -271,6 +271,15 @@ fn pty_kill(state: State<'_, AppState>, id: &str) -> Result<(), String> {
 
 // ---------------- 多窗口 ----------------
 
+/// 终端窗口数量（不含编辑器窗口）：供前端判断跨窗口移动是否可用
+#[tauri::command]
+fn terminal_window_count(app: AppHandle) -> usize {
+    app.webview_windows()
+        .keys()
+        .filter(|l| l.as_str() == "main" || l.starts_with("win-"))
+        .count()
+}
+
 /// 窗口销毁时清理属于它的所有 PTY 会话
 fn attach_session_cleanup(win: &tauri::WebviewWindow) {
     let label = win.label().to_string();
@@ -600,6 +609,7 @@ fn main() {
             pty_kill,
             pty_attach,
             pty_move_to_new_window,
+            terminal_window_count,
             read_text_file,
             write_text_file,
             get_locale,

@@ -45,6 +45,7 @@ const dict = {
     movePickSource: '点击源窗格取消',
     movePickDest: '选择目标窗格',
     moveEscHint: '按 Esc 取消移动',
+    moveIncoming: (title) => `正在移动会话「${title}」— 选择本窗口的目标窗格`,
     ctxCopy: '复制',
     ctxPaste: '粘贴',
     ctxSelectAll: '全选'
@@ -81,6 +82,7 @@ const dict = {
     movePickSource: 'Click to move source',
     movePickDest: 'Select a destination pane',
     moveEscHint: 'Press Esc to cancel',
+    moveIncoming: (title) => `Moving session "${title}" — pick a destination pane in this window`,
     ctxCopy: 'Copy',
     ctxPaste: 'Paste',
     ctxSelectAll: 'Select All'
