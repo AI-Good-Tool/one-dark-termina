@@ -60,6 +60,20 @@ fn drain_utf8(pending: &mut Vec<u8>) -> Option<String> {
     }
 }
 
+/// 把路径编码进 URL query（百分号编码非保留字符，供 ?cwd= 传参）
+fn percent_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.as_bytes() {
+        match *b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(*b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
 #[tauri::command]
 fn pty_spawn(
     app: AppHandle,
@@ -68,6 +82,7 @@ fn pty_spawn(
     window: String,
     cols: u16,
     rows: u16,
+    cwd: Option<String>,
 ) -> Result<(), String> {
     let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
     if sessions.contains_key(&id) {
@@ -147,13 +162,14 @@ fn pty_spawn(
         cmd.env("TZ", &app_settings.timezone);
     }
 
-    // 优先使用启动参数指定的目录（仅首次 spawn 生效），否则落 HOME
+    // 工作目录优先级：显式 cwd（?cwd= 窗口参数）> 启动参数（仅首次）> HOME
+    let explicit = cwd.filter(|d| std::path::Path::new(d).is_dir());
     let initial = state
         .initial_cwd
         .lock()
         .ok()
         .and_then(|mut g| g.take());
-    match initial {
+    match explicit.or(initial) {
         Some(dir) => cmd.cwd(dir),
         None => {
             if let Ok(home) = std::env::var("HOME") {
@@ -559,6 +575,23 @@ fn main() {
         .find(|a| !a.starts_with('-') && std::path::Path::new(a).is_dir());
 
     tauri::Builder::default()
+        // 单实例必须第一个注册：第二进程（如 MouseBoost"在此打开终端"直接
+        // exec 二进制）检测到已有实例后走此回调转发参数并立即退出，
+        // Dock 因此始终只有一个图标
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            let dir = args
+                .iter()
+                .skip(1)
+                .find(|a| !a.starts_with('-') && std::path::Path::new(a).is_dir())
+                .cloned();
+            let url = match &dir {
+                Some(d) => format!("index.html?cwd={}", percent_encode(d)),
+                None => "index.html".to_string(),
+            };
+            if let Err(e) = create_window(app, &url) {
+                eprintln!("单实例转发创建窗口失败: {e}");
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             sessions: Mutex::new(HashMap::new()),

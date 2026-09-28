@@ -57,6 +57,17 @@ const findTab = (tabId) => tabs.value.find((t) => t.id === tabId)
 const totalPanes = computed(() => tabs.value.reduce((n, t) => n + t.panes.length, 0))
 const displayTitle = (tab) => tab.panes[tab.activePane]?.title || tab.name
 
+// 同步 NSWindow 标题为当前标签标题：Dock 菜单窗口列表 / Mission Control 显示用
+const activeTab = computed(() => findTab(activeId.value))
+watch(
+  () => [activeId.value, activeTab.value && displayTitle(activeTab.value)],
+  () => {
+    const title = (activeTab.value && displayTitle(activeTab.value)) || 'One Dark Terminal'
+    getCurrentWindow().setTitle(title).catch(() => {})
+  },
+  { immediate: true }
+)
+
 // 其他终端窗口数量：跨窗口移动可用性的依据（编辑器窗口不计入）
 const otherWindows = ref(0)
 async function refreshWindows() {

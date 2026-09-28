@@ -6,6 +6,15 @@
 // 2) 上下文被系统回收时（onContextLoss）dispose 掉 addon，自动回退 canvas。
 const MAX_WEBGL = 4
 let webglActive = 0
+
+// 窗口 URL 携带的初始工作目录（单实例转发的"右键在此打开终端"）：模块级
+// 保存、首个 spawn 消费一次，之后新建标签/窗格不受影响
+let pendingCwd = new URLSearchParams(location.search).get('cwd')
+function takePendingCwd() {
+  const c = pendingCwd
+  pendingCwd = null
+  return c || null
+}
 </script>
 
 <script setup>
@@ -415,7 +424,8 @@ onMounted(async () => {
         id: props.sessionId,
         window: windowLabel,
         cols: term.cols,
-        rows: term.rows
+        rows: term.rows,
+        cwd: takePendingCwd()
       })
       spawned = true
     }
@@ -424,7 +434,8 @@ onMounted(async () => {
       id: props.sessionId,
       window: windowLabel,
       cols: term.cols,
-      rows: term.rows
+      rows: term.rows,
+      cwd: takePendingCwd()
     })
     spawned = true
   }
