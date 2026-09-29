@@ -98,6 +98,89 @@ function colorizeUrls(s) {
   return s.replace(URL_RE, (m) => `${URL_COLOR}${m}\x1b[39m`)
 }
 
+// ---- 链接悬停变色 ----
+// WebGL 渲染器下文字不走 DOM，无法用 CSS :hover 变色，改为直接重写单元格。
+// 整段序列一次 write 提交（xterm 按块顺序解析，不会与 PTY 数据交错），首尾用
+// DECSC/DECRC（\x1b7/\x1b8）保存并恢复光标位置与完整 SGR 状态，不污染后续输出。
+// hover 回调的 range.y 是缓冲区绝对行号（1 基，经核心 _positionFromMouseEvent
+// 与 web-links 源码验证），写入前须换算成视口行并用文本校验兜底滚动/新输出。
+const URL_RGB = (86 << 16) | (182 << 8) | 244 // 与 URL_COLOR 同色，用于校验
+const URL_HOVER_SGR = '\x1b[38;2;133;208;255m\x1b[4m' // 悬停：更亮的蓝 + 下划线
+let hoveredLink = null // { text, startX, endX, absStartY, absEndY }（行号 0 基绝对）
+
+// 按绝对行号读出链接范围文本；写入前校验，防止滚动/新输出后涂错位置
+function readLinkText(h) {
+  const buf = term?.buffer.active
+  if (!buf) return null
+  let out = ''
+  for (let y = h.absStartY; y <= h.absEndY; y++) {
+    const line = buf.getLine(y)
+    if (!line) return null
+    const from = y === h.absStartY ? h.startX - 1 : 0
+    const to = y === h.absEndY ? h.endX : term.cols
+    out += line.translateToString(true, from, to)
+  }
+  return out
+}
+
+// 悬停前校验范围内文字确为 URL 蓝：OSC8 链接等原始颜色未知的文字不做
+// 悬停变色，避免 leave 时被错误地涂成 URL 蓝
+function isPlainUrlColor(h) {
+  const buf = term?.buffer.active
+  if (!buf) return false
+  const cell = buf.getNullCell()
+  for (let y = h.absStartY; y <= h.absEndY; y++) {
+    const line = buf.getLine(y)
+    if (!line) return false
+    const from = y === h.absStartY ? h.startX - 1 : 0
+    const to = y === h.absEndY ? h.endX : term.cols
+    for (let x = from; x < to; x++) {
+      line.getCell(x, cell)
+      if (!cell || cell.getChars() === '') continue // 宽字符占位格
+      if (!cell.isFgRGB() || cell.getFgColor() !== URL_RGB || cell.isUnderline()) return false
+    }
+  }
+  return true
+}
+
+// 把悬停链接重涂为 sgr 指定样式；范围已失效（新输出/滚出视口）时安全跳过
+function paintHoveredLink(sgr) {
+  const h = hoveredLink
+  if (!h || !term) return
+  const buf = term.buffer.active
+  // 备用屏（vim/htop）与关闭自动换行时不重写，避免涂乱全屏应用。
+  // 注意运行时属性名是 wraparoundMode（typings 里叫 wraparound，以 runtime 为准）
+  if (buf.type !== 'normal' || term.modes.wraparoundMode === false) return
+  if (readLinkText(h) !== h.text) return
+  const sy = h.absStartY - buf.viewportY + 1
+  const ey = h.absEndY - buf.viewportY + 1
+  if (sy < 1 || ey > term.rows) return
+  term.write(`\x1b7\x1b[${sy};${h.startX}H${sgr}${h.text}\x1b8`)
+}
+
+function handleLinkHover(_event, text, range) {
+  const buf = term?.buffer.active
+  if (!buf || buf.type !== 'normal') return
+  const h = {
+    text,
+    startX: range.start.x,
+    endX: range.end.x,
+    absStartY: range.start.y - 1,
+    absEndY: range.end.y - 1
+  }
+  if (!isPlainUrlColor(h)) return
+  hoveredLink = h
+  paintHoveredLink(URL_HOVER_SGR)
+}
+
+function handleLinkLeave() {
+  // 恢复原色（位置已失效时跳过，残留的悬停色仅出现在滚出视口的旧行）
+  if (hoveredLink) {
+    paintHoveredLink(URL_COLOR)
+    hoveredLink = null
+  }
+}
+
 // ---- 拖入文件/文件夹：在输入行插入路径（仿 macOS 终端）----
 // 只含安全字符的路径原样插入；否则单引号包裹（内部单引号按 shell 规则转义）
 function shellQuote(p) {
@@ -293,11 +376,19 @@ onMounted(async () => {
   fit = new FitAddon()
   term.loadAddon(fit)
   term.open(el.value)
+  // 供无头 E2E 探测 buffer 状态（如悬停变色这类无法做像素断言的行为）
+  ;(window.__odtTerms ??= new Map()).set(props.sessionId, term)
 
   // 纯文本 http(s) URL 的链接识别在 @xterm/addon-web-links 里（xterm 核心
   // 只处理 OSC8 超链接）——之前没装这个 addon，导致 URL 只着色、点击无反应。
   // 显式传 handler，否则默认 handler 走 window.open（Tauri 里无效果）。
-  term.loadAddon(new WebLinksAddon((_event, uri) => handleLinkClick(uri)))
+  // hover/leave 用于悬停变色（重写单元格实现，见上方「链接悬停变色」）。
+  term.loadAddon(
+    new WebLinksAddon((_event, uri) => handleLinkClick(uri), {
+      hover: handleLinkHover,
+      leave: handleLinkLeave
+    })
+  )
 
   // 去除 OSC8 链接的下划线（两路补丁，均已用最小复现页验证）：
   // 1) 根因：xterm 5.5 的 ExtendedAttrs.underlineStyle getter 对带 urlId 的
@@ -361,6 +452,8 @@ onMounted(async () => {
   term.onTitleChange((t) => emit('title', t))
   // 滚动条跟随：滚动/换行（新输出）/缓冲区切换（进出 vim 等备用屏）
   term.onScroll(() => updateScrollbar())
+  // 滚动会让悬停的链接离开鼠标位置，直接恢复原色并清除悬停状态
+  term.onScroll(() => handleLinkLeave())
   term.onLineFeed(() => updateScrollbar())
   term.buffer.onBufferChange(() => updateScrollbar())
 
@@ -520,6 +613,7 @@ onBeforeUnmount(() => {
   clearTimeout(urlFlushTimer)
   window.removeEventListener('mousemove', onDragMove)
   window.removeEventListener('mouseup', onDragUp)
+  window.__odtTerms?.delete(props.sessionId)
   // 被移动（分屏/新标签页/拖出到新窗口）的会话带有 detached 标记：
   // 本次卸载不杀 PTY，并把标记消费掉——之后新挂载的组件再卸载时照常 kill，
   // 否则标记残留会导致最终关闭窗格时 shell 泄漏。
