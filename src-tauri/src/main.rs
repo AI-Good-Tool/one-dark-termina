@@ -328,6 +328,14 @@ fn pty_kill(state: State<'_, AppState>, id: &str) -> Result<(), String> {
 
 // ---------------- 多窗口 ----------------
 
+/// 全局递增的标签序号（跨所有窗口统一编号：终端 1、终端 2…，不复用）
+static TAB_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+#[tauri::command]
+fn next_tab_number() -> u64 {
+    TAB_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 /// 终端窗口数量（不含编辑器窗口）：供前端判断跨窗口移动是否可用
 #[tauri::command]
 fn terminal_window_count(app: AppHandle) -> usize {
@@ -685,6 +693,7 @@ fn main() {
             pty_move_to_new_window,
             open_in_browser,
             terminal_window_count,
+            next_tab_number,
             read_text_file,
             write_text_file,
             get_locale,

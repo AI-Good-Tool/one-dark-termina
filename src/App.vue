@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import TerminalTab from './components/TerminalTab.vue'
 import SettingsModal from './components/SettingsModal.vue'
@@ -22,12 +22,26 @@ const newPane = (over = {}) => ({
 })
 const newTab = () => ({
   id: crypto.randomUUID(),
-  name: t('terminalName', ++seq),
+  name: t('terminalName', ++seq), // 占位名，nameTab() 会用全局序号覆盖
+  custom: '', // 用户手动改的名（优先级最高，不被 shell 标题覆盖）
   dir: 'row',
   sizes: [1],
   activePane: 0,
   panes: [newPane()]
 })
+
+// 全局序号命名（跨窗口统一：终端 1、终端 2…，序号由 Rust 侧原子计数器分配）
+async function nameTab(tab) {
+  try {
+    const n = await invoke('next_tab_number')
+    // 注意按 id 重新取响应式对象：addTab 里 push 后持有的仍是原始对象，
+    // 直接写原始对象绕过 Vue 代理，界面不会更新
+    const target = findTab(tab.id) || tab
+    if (!target.custom) target.name = t('terminalName', n)
+  } catch {
+    /* 保留占位名 */
+  }
+}
 
 // 拖出移动来的窗口：URL 带 ?attach=<sessionId>[,<sessionId>…]，
 // 附着到已有 shell 会话（多个 id 说明拖出的是一整组分屏窗格）
@@ -40,6 +54,7 @@ const tabs = ref(
         {
           id: crypto.randomUUID(),
           name: t('terminalName', 1),
+          custom: '',
           dir: 'row',
           sizes: attachIds.map(() => 1),
           activePane: 0,
@@ -55,7 +70,8 @@ const myLabel = getCurrentWindow().label
 
 const findTab = (tabId) => tabs.value.find((t) => t.id === tabId)
 const totalPanes = computed(() => tabs.value.reduce((n, t) => n + t.panes.length, 0))
-const displayTitle = (tab) => tab.panes[tab.activePane]?.title || tab.name
+// 显示优先级：用户改名 > shell 会话标题（OSC）> 序号名
+const displayTitle = (tab) => tab.custom || tab.panes[tab.activePane]?.title || tab.name
 
 // 同步 NSWindow 标题为当前标签标题：Dock 菜单窗口列表 / Mission Control 显示用
 const activeTab = computed(() => findTab(activeId.value))
@@ -80,13 +96,33 @@ async function refreshWindows() {
 // 本窗口 ≥2 个会话，或存在其他终端窗口时，移动可用
 const canMove = computed(() => totalPanes.value >= 2 || otherWindows.value > 0)
 
-// 原生侧读取语言偏好（含系统设置里的 App 级语言），校正首个标签名
+// 原生侧读取语言偏好（含系统设置里的 App 级语言），然后为初始标签分配全局序号名
 invoke('get_locale').then((lang) => {
   setLocale(lang)
-  if (tabs.value.length > 0) {
-    tabs.value[0].name = t('terminalName', 1)
-  }
+  for (const tab of tabs.value) nameTab(tab)
 })
+
+// ---- 标签重命名（双击标题或右键菜单"重命名…"）----
+const renaming = ref(null) // tabId
+const renameText = ref('')
+
+function startRename(tab) {
+  menu.value = null
+  renaming.value = tab.id
+  renameText.value = displayTitle(tab)
+  nextTick(() => {
+    const input = document.querySelector('.tab-rename')
+    input?.focus()
+    input?.select()
+  })
+}
+
+function commitRename() {
+  const tab = renaming.value && findTab(renaming.value)
+  const v = renameText.value.trim()
+  if (tab && v) tab.custom = v
+  renaming.value = null
+}
 
 onMounted(async () => {
   // 启动时应用已启用的扩展颜色主题 / 图标字体
@@ -180,6 +216,7 @@ function addTab() {
   const tab = newTab()
   tabs.value.push(tab)
   activeId.value = tab.id
+  nameTab(tab)
 }
 
 function removeTab(tabId) {
@@ -353,12 +390,14 @@ function moveToNewTabFromMenu() {
   const nt = {
     id: crypto.randomUUID(),
     name: t('terminalName', ++seq),
+    custom: '',
     dir: 'row',
     sizes: [1],
     activePane: 0,
     panes: [newPane({ id: pane.id, title: pane.title, attach: true })]
   }
   tabs.value.push(nt)
+  nameTab(nt)
   activeId.value = nt.id
 }
 
@@ -487,14 +526,30 @@ function onMoveKey(e) {
           :key="tab.id"
           class="tab"
           :class="{ active: tab.id === activeId }"
-          draggable="true"
+          :draggable="renaming !== tab.id"
           @click="activeId = tab.id"
           @dragstart="onTabDragStart"
           @dragend="onTabDragEnd(tab, $event)"
           @contextmenu="onTabContextMenu(tab, $event)"
         >
           <span class="tab-dot"></span>
-          <span class="tab-title">{{ displayTitle(tab) }}</span>
+          <span
+            v-if="renaming !== tab.id"
+            class="tab-title"
+            :title="t('renameTab')"
+            @dblclick.stop="startRename(tab)"
+          >{{ displayTitle(tab) }}</span>
+          <input
+            v-else
+            v-model="renameText"
+            class="tab-rename"
+            @keydown.enter.prevent="commitRename"
+            @keydown.esc.stop="renaming = null"
+            @blur="commitRename"
+            @click.stop
+            @mousedown.stop
+            @dblclick.stop
+          />
           <span v-if="tab.panes.length > 1" class="tab-panes-count">{{ tab.panes.length }}</span>
           <span class="tab-close" :title="t('closeTab')" @click.stop="closeTab(tab)">×</span>
         </div>
@@ -611,6 +666,12 @@ function onMoveKey(e) {
           </button>
           <div class="ctx-sep"></div>
         </template>
+        <template v-if="menu.kind === 'tab'">
+          <button class="ctx-item" @click="startRename(menuTab)">
+            {{ t('renameTab') }}
+          </button>
+          <div class="ctx-sep"></div>
+        </template>
         <button
           class="ctx-item"
           :disabled="!canMove"
@@ -698,6 +759,20 @@ function onMoveKey(e) {
 .tab-title {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 重命名输入框：占据标题位置，风格与标签一致 */
+.tab-rename {
+  flex: 1;
+  min-width: 40px;
+  padding: 1px 4px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--fg);
+  background: var(--bg-darker);
+  border: 1px solid var(--blue);
+  border-radius: 3px;
+  outline: none;
 }
 
 .tab-panes-count {
