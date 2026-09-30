@@ -194,6 +194,7 @@ const INPUT_LOCK_PROGRAMS = new Set([
   'gradle',
   'gradlew',
   'npm',
+  'npm-cli.js',
   'npx',
   'pnpm',
   'yarn',

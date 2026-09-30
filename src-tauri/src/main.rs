@@ -306,7 +306,88 @@ fn fg_program_name(shell_pid: u32) -> Option<String> {
     }
     let fg = bsdinfo(tpgid)?; // 进程组组长 pid == pgid
     let end = fg[48..64].iter().position(|&c| c == 0).unwrap_or(16);
-    Some(String::from_utf8_lossy(&fg[48..48 + end]).to_string())
+    let comm = String::from_utf8_lossy(&fg[48..48 + end]).to_string();
+    // comm 对脚本类程序是解释器名（mvn→sh、npm→node），需看 argv 还原真实入口
+    Some(display_name_of(tpgid, comm))
+}
+
+/// 读进程 argv（sysctl KERN_PROCARGS2）：int32 argc + exec 路径（NUL 结尾，
+/// 后跟对齐 NUL 填充）+ argv[0..argc]。
+#[cfg(target_os = "macos")]
+fn process_args(pid: u32) -> Option<Vec<String>> {
+    unsafe extern "C" {
+        fn sysctl(
+            mib: *mut i32,
+            namelen: u32,
+            oldp: *mut u8,
+            oldlenp: *mut usize,
+            newp: *const u8,
+            newlen: usize,
+        ) -> i32;
+    }
+    const CTL_KERN: i32 = 1;
+    const KERN_PROCARGS2: i32 = 49;
+    let mut mib = [CTL_KERN, KERN_PROCARGS2, pid as i32];
+    let mut size: usize = 0;
+    let r = unsafe {
+        sysctl(mib.as_mut_ptr(), 3, std::ptr::null_mut(), &mut size, std::ptr::null(), 0)
+    };
+    if r != 0 || size < 4 || size > (1 << 20) {
+        return None;
+    }
+    let mut buf = vec![0u8; size];
+    let r = unsafe {
+        sysctl(mib.as_mut_ptr(), 3, buf.as_mut_ptr(), &mut size, std::ptr::null(), 0)
+    };
+    if r != 0 || buf.len() < 4 {
+        return None;
+    }
+    let argc = i32::from_ne_bytes(buf[0..4].try_into().ok()?) as usize;
+    let mut rest = &buf[4..];
+    let nul = rest.iter().position(|&c| c == 0)?; // exec 路径
+    rest = &rest[nul + 1..];
+    while let Some((&0, tail)) = rest.split_first() {
+        rest = tail; // 对齐填充
+    }
+    let mut args = Vec::new();
+    for _ in 0..argc.min(64) {
+        let Some(nul) = rest.iter().position(|&c| c == 0) else {
+            break;
+        };
+        args.push(String::from_utf8_lossy(&rest[..nul]).to_string());
+        rest = &rest[nul + 1..];
+    }
+    Some(args)
+}
+
+/// 进程名还原：argv[0] 是解释器时取 argv[1]（脚本路径）的 basename，
+/// 否则取 argv[0] 的 basename，失败回退 comm。
+#[cfg(target_os = "macos")]
+fn display_name_of(pid: u32, comm: String) -> String {
+    fn base(p: &str) -> &str {
+        p.rsplit('/').next().unwrap_or(p)
+    }
+    const INTERPRETERS: [&str; 10] = [
+        "sh", "bash", "zsh", "dash", "env", "node", "python", "python3", "ruby", "perl",
+    ];
+    if let Some(args) = process_args(pid) {
+        let a0 = args
+            .first()
+            .map(|s| base(s).trim_start_matches('-'))
+            .unwrap_or("");
+        if INTERPRETERS.contains(&a0) {
+            if let Some(a1) = args.get(1) {
+                let b1 = base(a1);
+                if !b1.is_empty() && !b1.starts_with('-') {
+                    return b1.to_string();
+                }
+            }
+        }
+        if !a0.is_empty() {
+            return a0.to_string();
+        }
+    }
+    comm
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -761,4 +842,20 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn process_args_reads_own_argv() {
+        let args = process_args(std::process::id()).expect("sysctl KERN_PROCARGS2 failed");
+        assert!(!args.is_empty(), "argv empty");
+        assert!(
+            args[0].contains("one_dark_terminal") || args[0].contains("deps"),
+            "unexpected argv0: {}",
+            args[0]
+        );
+    }
 }
