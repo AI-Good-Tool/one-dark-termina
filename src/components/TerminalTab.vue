@@ -18,7 +18,7 @@ function takePendingCwd() {
 </script>
 
 <script setup>
-import { onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { onMounted, onBeforeUnmount, computed, reactive, ref, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
@@ -181,6 +181,71 @@ function handleLinkLeave() {
   }
 }
 
+// ---- 前台程序输入锁 ----
+// java/tail/构建工具等在前台刷日志时，敲键盘的字符会被 TTY 回显，程序退出后
+// 还会被 shell 当命令执行（type-ahead）。"程序是否在读 stdin"无法可靠探测
+// （任何程序都可能读），所以用黑名单：只对已知纯输出/服务型程序锁定输入；
+// 控制键（Ctrl+C \x03、Ctrl+Z 等）与 ESC 序列（方向键等）始终放行。
+const INPUT_LOCK_PROGRAMS = new Set([
+  'java',
+  'tail',
+  'mvn',
+  'mvnw',
+  'gradle',
+  'gradlew',
+  'npm',
+  'npx',
+  'pnpm',
+  'yarn',
+  'bun',
+  'docker',
+  'kubectl'
+])
+const fgProgram = ref(null)
+const lockFlash = ref(false)
+const inputLocked = computed(
+  () => !!fgProgram.value && INPUT_LOCK_PROGRAMS.has(fgProgram.value)
+)
+let fgDebounceTimer = null
+let fgPollTimer = null
+let lockFlashTimer = null
+
+async function refreshFgProgram() {
+  try {
+    fgProgram.value = await invoke('pty_fg_program', { id: props.sessionId })
+  } catch {
+    /* 查询失败保持原状态 */
+  }
+}
+
+// 有新输出后前台状态可能变化（程序启动/退出回提示符），去抖查询
+function scheduleFgRefresh() {
+  clearTimeout(fgDebounceTimer)
+  fgDebounceTimer = setTimeout(refreshFgProgram, 300)
+}
+
+// 纯文本输入（可打印字符 + 回车）：含 ESC 或控制字符的序列不属于此类
+function isPlainTextInput(d) {
+  for (const ch of d) {
+    const c = ch.codePointAt(0)
+    if (c === 0x1b) return false
+    if (c < 0x20 && ch !== '\r') return false
+  }
+  return true
+}
+
+// 输入锁生效时返回 true（并闪一下锁定提示）
+function swallowIfLocked(data) {
+  if (!inputLocked.value || !isPlainTextInput(data)) return false
+  lockFlash.value = false
+  requestAnimationFrame(() => {
+    lockFlash.value = true
+    clearTimeout(lockFlashTimer)
+    lockFlashTimer = setTimeout(() => (lockFlash.value = false), 700)
+  })
+  return true
+}
+
 // ---- 拖入文件/文件夹：在输入行插入路径（仿 macOS 终端）----
 // 只含安全字符的路径原样插入；否则单引号包裹（内部单引号按 shell 规则转义）
 function shellQuote(p) {
@@ -215,6 +280,8 @@ function feedPtyData(data) {
   }
   s = colorizeUrls(s)
   if (s) term.write(s)
+  // 有新输出意味着前台状态可能变了（程序启动刷日志 / 退出回提示符）
+  scheduleFgRefresh()
 }
 
 const el = ref(null)
@@ -293,6 +360,17 @@ function onTrackDown(e) {
   const ratio = (e.clientY - rect.top) / rect.height
   term.scrollToLine(Math.round(ratio * term.buffer.active.baseY))
   term.focus()
+}
+
+// 滚动条两端的返回顶部/回到底部按钮
+function scrollToTop() {
+  term?.scrollToTop()
+  term?.focus()
+}
+
+function scrollToBottom() {
+  term?.scrollToBottom()
+  term?.focus()
 }
 
 function setupWebGL() {
@@ -443,7 +521,10 @@ onMounted(async () => {
   applyCursorStyle()
 
   term.onData((data) => {
-    if (spawned) invoke('pty_write', { id: props.sessionId, data })
+    if (!spawned) return
+    // 前台是纯输出型程序（java 刷日志等）时吞掉可打印输入，Ctrl+C 等放行
+    if (swallowIfLocked(data)) return
+    invoke('pty_write', { id: props.sessionId, data })
   })
   term.onResize(({ cols, rows }) => {
     if (spawned) invoke('pty_resize', { id: props.sessionId, cols, rows })
@@ -533,6 +614,10 @@ onMounted(async () => {
     spawned = true
   }
 
+  // 输入锁：前台程序状态轮询（新输出触发的去抖查询见 feedPtyData）
+  refreshFgProgram()
+  fgPollTimer = setInterval(refreshFgProgram, 2000)
+
   observer = new ResizeObserver(() => {
     // 可见才 fit：非激活标签页是 display:none（fit 得 0 尺寸会抛错）；
     // 分屏里的非激活窗格是可见的，也必须同步尺寸——否则它的 PTY 尺寸
@@ -591,7 +676,9 @@ defineExpose({
   async paste() {
     try {
       const text = await navigator.clipboard.readText()
-      if (text && spawned) invoke('pty_write', { id: props.sessionId, data: text })
+      if (text && spawned && !swallowIfLocked(text)) {
+        invoke('pty_write', { id: props.sessionId, data: text })
+      }
     } catch {
       /* 剪贴板不可读时忽略 */
     }
@@ -611,6 +698,9 @@ onBeforeUnmount(() => {
   unlistenExit?.()
   unlistenDrag?.()
   clearTimeout(urlFlushTimer)
+  clearTimeout(fgDebounceTimer)
+  clearTimeout(lockFlashTimer)
+  clearInterval(fgPollTimer)
   window.removeEventListener('mousemove', onDragMove)
   window.removeEventListener('mouseup', onDragUp)
   window.__odtTerms?.delete(props.sessionId)
@@ -635,6 +725,24 @@ onBeforeUnmount(() => {
 <template>
   <div class="term-root">
     <div ref="el" class="term-host" @contextmenu="onContextMenu"></div>
+    <button
+      v-show="scrollbar.visible"
+      class="term-scroll-btn top"
+      title="返回顶部"
+      @mousedown.prevent
+      @click="scrollToTop"
+    >
+      <svg viewBox="0 0 10 6" width="9" height="6">
+        <path
+          d="M1 5 L5 1 L9 5"
+          stroke="currentColor"
+          stroke-width="1.6"
+          fill="none"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </button>
     <div
       v-show="scrollbar.visible"
       ref="trackEl"
@@ -647,6 +755,27 @@ onBeforeUnmount(() => {
         :style="{ top: scrollbar.top + '%', height: scrollbar.height + '%' }"
         @mousedown="onThumbDown"
       ></div>
+    </div>
+    <button
+      v-show="scrollbar.visible"
+      class="term-scroll-btn bottom"
+      title="回到底部"
+      @mousedown.prevent
+      @click="scrollToBottom"
+    >
+      <svg viewBox="0 0 10 6" width="9" height="6">
+        <path
+          d="M1 1 L5 5 L9 1"
+          stroke="currentColor"
+          stroke-width="1.6"
+          fill="none"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </button>
+    <div v-if="inputLocked" class="term-input-lock" :class="{ flash: lockFlash }">
+      {{ fgProgram }} 运行中 · 输入已锁定
     </div>
   </div>
 </template>
@@ -679,8 +808,9 @@ onBeforeUnmount(() => {
 
 .term-scrollbar {
   position: absolute;
-  top: 6px;
-  bottom: 6px;
+  /* 上下各留 22px 给返回顶部/底部按钮 */
+  top: 24px;
+  bottom: 24px;
   right: 3px;
   width: 9px;
   z-index: 30;
@@ -699,5 +829,62 @@ onBeforeUnmount(() => {
 .term-scrollbar-thumb:hover,
 .term-scrollbar-thumb.dragging {
   background: rgba(255, 255, 255, 0.34);
+}
+
+/* 滚动条两端的返回顶部/回到底部按钮 */
+.term-scroll-btn {
+  position: absolute;
+  right: 0;
+  width: 15px;
+  height: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  z-index: 31;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.term-scroll-btn.top {
+  top: 3px;
+}
+
+.term-scroll-btn.bottom {
+  bottom: 3px;
+}
+
+.term-scroll-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* 前台程序运行中的输入锁定提示（吞下按键时闪烁） */
+.term-input-lock {
+  position: absolute;
+  right: 20px;
+  bottom: 8px;
+  padding: 3px 10px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  line-height: 1.4;
+  pointer-events: none;
+  z-index: 32;
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+
+.term-input-lock.flash {
+  background: rgba(224, 108, 117, 0.85);
+  color: #fff;
 }
 </style>

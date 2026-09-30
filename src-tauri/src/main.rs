@@ -263,6 +263,57 @@ fn pty_write(state: State<'_, AppState>, id: &str, data: &str) -> Result<(), Str
     Ok(())
 }
 
+/// 查询 PTY 前台进程名：shell 停在提示符时返回 None；有前台程序
+/// （如 java 刷日志）时返回其 comm 名。前端据此对"纯输出型"程序锁定键盘输入，
+/// 防止 type-ahead（字符被 TTY 回显、程序退出后被 shell 当命令执行）。
+#[tauri::command]
+fn pty_fg_program(state: State<'_, AppState>, id: &str) -> Result<Option<String>, String> {
+    let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+    let Some(s) = sessions.get(id) else {
+        return Ok(None);
+    };
+    let Some(pid) = s.child.process_id() else {
+        return Ok(None);
+    };
+    Ok(fg_program_name(pid))
+}
+
+#[cfg(target_os = "macos")]
+fn fg_program_name(shell_pid: u32) -> Option<String> {
+    // proc_bsdinfo 字段偏移（XNU sys/proc_info.h，64 位）：
+    // pbi_comm @48（16 字节）、pbi_pgid @100、pbi_tpgid @112，总长约 152 字节
+    fn bsdinfo(pid: u32) -> Option<[u8; 256]> {
+        unsafe extern "C" {
+            fn proc_pidinfo(pid: i32, flavor: i32, arg: u64, buffer: *mut u8, bufsize: i32) -> i32;
+        }
+        const PROC_PIDTBSDINFO: i32 = 3;
+        let mut buf = [0u8; 256];
+        let n = unsafe {
+            proc_pidinfo(pid as i32, PROC_PIDTBSDINFO, 1, buf.as_mut_ptr(), buf.len() as i32)
+        };
+        if n < 152 {
+            return None;
+        }
+        Some(buf)
+    }
+    fn rd_u32(b: &[u8; 256], off: usize) -> u32 {
+        u32::from_ne_bytes(b[off..off + 4].try_into().unwrap())
+    }
+    let info = bsdinfo(shell_pid)?;
+    let tpgid = rd_u32(&info, 112); // 控制终端的前台进程组
+    if tpgid == 0 || tpgid == rd_u32(&info, 100) {
+        return None; // shell 自己的进程组在前台 = 停在提示符
+    }
+    let fg = bsdinfo(tpgid)?; // 进程组组长 pid == pgid
+    let end = fg[48..64].iter().position(|&c| c == 0).unwrap_or(16);
+    Some(String::from_utf8_lossy(&fg[48..48 + end]).to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn fg_program_name(_shell_pid: u32) -> Option<String> {
+    None
+}
+
 #[tauri::command]
 fn pty_resize(state: State<'_, AppState>, id: &str, cols: u16, rows: u16) -> Result<(), String> {
     let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
@@ -687,6 +738,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             pty_spawn,
             pty_write,
+            pty_fg_program,
             pty_resize,
             pty_kill,
             pty_attach,
