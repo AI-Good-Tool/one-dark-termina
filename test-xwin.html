@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ODT xwin test</title>
+    <script>
+      // 跨窗口移动 E2E：BroadcastChannel 模拟 Tauri 全局事件总线。
+      // URL 参数：win=<窗口label>（默认 main）、wc=<终端窗口总数>（默认 1）
+      (() => {
+        const q = new URLSearchParams(location.search)
+        const winLabel = q.get('win') || 'main'
+        const winCount = parseInt(q.get('wc') || '1', 10)
+        let cbSeq = 0
+        let evtSeq = 0
+        let tabNum = 0
+        const callbacks = new Map()
+        const evtListeners = new Map() // eventId -> {event, handlerId}
+        const bc = new BroadcastChannel('odt-mock-events')
+        window.__invokeLog = []
+        function fireEvent(event, payload) {
+          for (const l of evtListeners.values()) {
+            if (l.event === event) callbacks.get(l.handlerId)?.({ event, payload })
+          }
+        }
+        bc.onmessage = (m) => fireEvent(m.data.event, m.data.payload)
+        window.__fireEvent = fireEvent
+        window.__TAURI_INTERNALS__ = {
+          metadata: { currentWindow: { label: winLabel }, currentWebview: { label: winLabel } },
+          transformCallback(cb) { const id = ++cbSeq; callbacks.set(id, cb); return id },
+          invoke(cmd, args) {
+            window.__invokeLog.push({ cmd, args })
+            switch (cmd) {
+              case 'get_locale': return Promise.resolve('zh-CN')
+              case 'get_term_theme': return Promise.resolve(null)
+              case 'get_icon_font': return Promise.resolve(null)
+              case 'get_settings': return Promise.resolve({ cursorStyle: 'bar' })
+              case 'pty_attach': return Promise.resolve('')
+              case 'read_file_bytes': return Promise.resolve([])
+              case 'terminal_window_count': return Promise.resolve(winCount)
+              case 'next_tab_number': return Promise.resolve(++tabNum)
+              case 'plugin:event|listen': {
+                const id = ++evtSeq
+                evtListeners.set(id, { event: args.event, handlerId: args.handler })
+                return Promise.resolve(id)
+              }
+              case 'plugin:event|unlisten': {
+                for (const [k, v] of evtListeners) if (v.event === args.event) evtListeners.delete(k)
+                return Promise.resolve(null)
+              }
+              case 'plugin:event|emit': {
+                // 真实 Tauri：emit 同时到达本窗口与其他窗口
+                fireEvent(args.event, args.payload)
+                bc.postMessage({ event: args.event, payload: args.payload })
+                return Promise.resolve(null)
+              }
+              case 'plugin:window|outer_position': return Promise.resolve({ x: 0, y: 0 })
+              case 'plugin:window|outer_size': return Promise.resolve({ width: 1280, height: 800 })
+              default: return Promise.resolve(null)
+            }
+          }
+        }
+      })()
+    </script>
+    <script type="module" crossorigin src="/"></script>
+    <link rel="stylesheet" crossorigin href="/">
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>

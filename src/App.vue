@@ -222,6 +222,9 @@ async function onTabDragEnd(tab, e) {
 }
 
 function addTab(cwd) {
+  // 防御：模板 @click="addTab" 会把 MouseEvent 当第一个参数传进来，
+  // 以及任何非字符串调用方，统一视为无 cwd，避免把对象传给 pty_spawn
+  if (typeof cwd !== 'string' || !cwd) cwd = undefined
   const tab = newTab()
   if (cwd) {
     tab.panes[0].cwd = cwd
@@ -576,7 +579,7 @@ function onMoveKey(e) {
           <span v-if="tab.panes.length > 1" class="tab-panes-count">{{ tab.panes.length }}</span>
           <span class="tab-close" :title="t('closeTab')" @click.stop="closeTab(tab)">×</span>
         </div>
-        <button class="tab-add" :title="t('newTab')" @click="addTab">+</button>
+        <button class="tab-add" :title="t('newTab')" @click="addTab()">+</button>
       </div>
       <button
         class="settings-btn"
