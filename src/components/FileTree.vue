@@ -343,6 +343,12 @@ function onRowContextMenu(row, e) {
   }
 }
 
+// 当前打开目录根行/cwd 行的右键：合成一个目录 entry 复用树行菜单（含收藏切换）
+function onRootContextMenu(e) {
+  if (!cwd.value) return
+  onRowContextMenu({ path: cwd.value, name: rootName.value, isDir: true }, e)
+}
+
 function closeMenu() {
   menu.value = null
 }
@@ -449,8 +455,8 @@ function menuToggleFavorite() {
         <div v-if="!recents.length" class="ft-empty">{{ t('emptyRecent') }}</div>
       </div>
     </div>
-    <div class="filetree-cwd" :title="cwd">{{ displayCwd }}</div>
-    <div class="filetree-root-row">
+    <div class="filetree-cwd" :title="cwd" @contextmenu="onRootContextMenu">{{ displayCwd }}</div>
+    <div class="filetree-root-row" @contextmenu="onRootContextMenu">
       <svg class="chev" width="9" height="9" viewBox="0 0 8 8">
         <path d="M1 2 L4 6 L7 2" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
