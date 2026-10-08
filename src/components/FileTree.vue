@@ -543,6 +543,13 @@ function menuToggleFavorite() {
   user-select: none;
 }
 
+/* WKWebView 下 user-select 需 -webkit- 前缀；整个侧边栏禁止文本选中 */
+.filetree,
+.filetree * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 /* 右缘拖拽调宽手柄：4px 热区，悬停/拖拽时亮出 */
 .ft-resizer {
   position: absolute;
