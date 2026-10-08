@@ -74,6 +74,7 @@ function onFileClick(path) {
 }
 
 // 拍平成渲染行：{ path, name, isDir, isLink, glyph, color, depth, hasChildren }
+const rootCollapsed = ref(false)
 const rows = computed(() => {
   const out = []
   const walk = (dir, depth) => {
@@ -84,7 +85,7 @@ const rows = computed(() => {
       if (e.isDir && expanded.value.has(p)) walk(p, depth + 1)
     }
   }
-  if (cwd.value) walk(cwd.value, 0)
+  if (cwd.value && !rootCollapsed.value) walk(cwd.value, 0)
   return out
 })
 
@@ -467,12 +468,13 @@ function menuToggleFavorite() {
       </div>
     </div>
     <div class="filetree-cwd" :title="cwd" @contextmenu="onRootContextMenu">{{ displayCwd }}</div>
-    <div class="filetree-root-row" @contextmenu="onRootContextMenu">
-      <svg class="chev" width="9" height="9" viewBox="0 0 8 8">
-        <path d="M1 2 L4 6 L7 2" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+    <div class="filetree-root-row" @click="rootCollapsed = !rootCollapsed" @contextmenu="onRootContextMenu">
+      <svg class="chev" :class="{ open: !rootCollapsed }" width="9" height="9" viewBox="0 0 8 8">
+        <path d="M2 1 L6 4 L2 7" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
       <span class="tree-icon" :style="{ fontFamily: iconFont, color: rootIcon.color || 'inherit' }">{{ rootIcon.glyph }}</span>
       <span class="filetree-root-name">{{ rootName }}</span>
+      <span v-if="isFavorite(cwd)" class="ft-fav-badge" :style="{ fontFamily: iconFont }" :title="t('favorites')">&#xf005;</span>
     </div>
     <div class="filetree-body">
       <div
@@ -733,6 +735,19 @@ function menuToggleFavorite() {
   font-size: 12px;
   font-weight: 600;
   color: #d7dae0;
+  cursor: pointer;
+}
+
+.filetree-root-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* 当前目录已收藏的星标 */
+.ft-fav-badge {
+  margin-left: auto;
+  font-size: 11px;
+  color: #e5c07b;
+  flex-shrink: 0;
 }
 
 .chev {
