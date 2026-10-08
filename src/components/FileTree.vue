@@ -467,7 +467,8 @@ function menuToggleFavorite() {
         <div v-if="!recents.length" class="ft-empty">{{ t('emptyRecent') }}</div>
       </div>
     </div>
-    <div class="filetree-cwd" :title="cwd" @contextmenu="onRootContextMenu">{{ displayCwd }}</div>
+    <!-- cwd 在家目录时路径行只有一个 ~，冗余且难看，隐藏（根行已显示目录名） -->
+    <div v-if="cwd && displayCwd !== '~'" class="filetree-cwd" :title="cwd" @contextmenu="onRootContextMenu">{{ displayCwd }}</div>
     <div class="filetree-root-row" @click="rootCollapsed = !rootCollapsed" @contextmenu="onRootContextMenu">
       <svg class="chev" :class="{ open: !rootCollapsed }" width="9" height="9" viewBox="0 0 8 8">
         <path d="M2 1 L6 4 L2 7" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round" />
@@ -499,6 +500,7 @@ function menuToggleFavorite() {
         <span v-else class="chev-spacer"></span>
         <span class="tree-icon" :style="{ fontFamily: iconFont, color: row.color || 'inherit' }">{{ row.glyph }}</span>
         <span class="tree-name">{{ row.name }}</span>
+        <span v-if="row.isDir && isFavorite(row.path)" class="ft-fav-badge" :style="{ fontFamily: iconFont }" :title="t('favorites')">&#xf005;</span>
       </div>
     </div>
     <!-- 拖拽提示层 -->
