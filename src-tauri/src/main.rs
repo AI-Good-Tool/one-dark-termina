@@ -465,6 +465,23 @@ fn list_recent_dirs() -> Vec<String> {
     settings::load().recent_dirs
 }
 
+/// 删除一条最近目录记录，返回更新后的列表
+#[tauri::command]
+fn remove_recent_dir(path: String) -> Result<Vec<String>, String> {
+    let mut s = settings::load();
+    s.recent_dirs.retain(|p| p != &path);
+    settings::save(&s)?;
+    Ok(s.recent_dirs)
+}
+
+/// 清空最近目录记录
+#[tauri::command]
+fn clear_recent_dirs() -> Result<(), String> {
+    let mut s = settings::load();
+    s.recent_dirs.clear();
+    settings::save(&s)
+}
+
 /// 记录一次"在此打开终端"：去重置顶、截断到 30 条，返回更新后的列表
 #[tauri::command]
 fn push_recent_dir(path: String) -> Result<Vec<String>, String> {
@@ -944,6 +961,8 @@ fn main() {
             list_favorites,
             set_favorite,
             list_recent_dirs,
+            remove_recent_dir,
+            clear_recent_dirs,
             push_recent_dir,
             get_home_dir,
             pty_resize,

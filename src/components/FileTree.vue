@@ -280,11 +280,61 @@ const iconFont = computed(() =>
     : '"Symbols Nerd Font Mono",monospace'
 )
 
+// 收藏/最近行右键：与文件树同风格的菜单（打开终端/访达显示/删除/清空）
+const dirMenu = ref(null) // { x, y, path, kind: 'fav' | 'recent' }
+
+function onDirRowContextMenu(e, path, kind) {
+  e.preventDefault()
+  e.stopPropagation()
+  menu.value = null
+  dirMenu.value = { x: e.clientX, y: e.clientY, path, kind }
+}
+
+function closeDirMenu() {
+  dirMenu.value = null
+}
+
+function dmOpenTerminal() {
+  const m = dirMenu.value
+  if (m) emit('open-terminal', m.path)
+  closeDirMenu()
+}
+
+function dmReveal() {
+  const m = dirMenu.value
+  if (m) openDirInFinder(m.path)
+  closeDirMenu()
+}
+
+async function dmRemove() {
+  const m = dirMenu.value
+  if (!m) return
+  if (m.kind === 'fav') {
+    await setFavorite(m.path, false)
+  } else {
+    try {
+      recents.value = (await invoke('remove_recent_dir', { path: m.path })) || []
+      emitGlobal('odt-dirs-changed', {}).catch(() => {})
+    } catch { /* 忽略 */ }
+  }
+  closeDirMenu()
+}
+
+async function dmClearAll() {
+  try {
+    await invoke('clear_recent_dirs')
+    recents.value = []
+    emitGlobal('odt-dirs-changed', {}).catch(() => {})
+  } catch { /* 忽略 */ }
+  closeDirMenu()
+}
+
 // ---- 右键菜单 ----
 const menu = ref(null) // { x, y, entry, dir }
 function onRowContextMenu(row, e) {
   e.preventDefault()
   e.stopPropagation()
+  dirMenu.value = null
   menu.value = {
     x: e.clientX,
     y: e.clientY,
@@ -363,7 +413,7 @@ function menuToggleFavorite() {
           class="tree-row ft-dir-row"
           :title="f"
           @click="openDir(f)"
-          @contextmenu.prevent="openDirInFinder(f)"
+          @contextmenu="onDirRowContextMenu($event, f, 'fav')"
         >
           <span class="chev-spacer"></span>
           <span class="tree-icon" :style="{ fontFamily: iconFont, color: '#e5c07b' }">&#xf07b;</span>
@@ -389,7 +439,7 @@ function menuToggleFavorite() {
           class="tree-row ft-dir-row"
           :title="r"
           @click="openDir(r)"
-          @contextmenu.prevent="openDirInFinder(r)"
+          @contextmenu="onDirRowContextMenu($event, r, 'recent')"
         >
           <span class="chev-spacer"></span>
           <span class="tree-icon" :style="{ fontFamily: iconFont, color: '#56b6c2' }">&#xf017;</span>
@@ -442,6 +492,17 @@ function menuToggleFavorite() {
         </button>
         <button v-if="!menu.entry.isDir" class="ctx-item" @click="menuOpenEditor">{{ t('openInEditor') }}</button>
         <button class="ctx-item" @click="menuReveal">{{ t('revealInFinder') }}</button>
+      </div>
+    </div>
+    <!-- 收藏/最近行右键菜单 -->
+    <div v-if="dirMenu" class="ctx-backdrop" @mousedown="closeDirMenu" @contextmenu.prevent="closeDirMenu">
+      <div class="ctx-menu" :style="{ left: dirMenu.x + 'px', top: dirMenu.y + 'px' }" @mousedown.stop>
+        <button class="ctx-item" @click="dmOpenTerminal">{{ t('openTerminalHere') }}</button>
+        <button class="ctx-item" @click="dmReveal">{{ t('revealInFinder') }}</button>
+        <button class="ctx-item" @click="dmRemove">
+          {{ dirMenu.kind === 'fav' ? t('removeFavorite') : t('removeRecord') }}
+        </button>
+        <button v-if="dirMenu.kind === 'recent'" class="ctx-item" @click="dmClearAll">{{ t('clearRecent') }}</button>
       </div>
     </div>
     <!-- 右缘拖拽调宽手柄 -->
