@@ -230,9 +230,12 @@ fn pty_spawn(
                                 }
                             }
                         }
-                        if app.emit(&data_event, text).is_err() {
-                            break;
-                        }
+                        // emit 失败（某个 webview 窗口处于创建/销毁竞态导致 eval
+                        // 失败时，Tauri 的广播 emit 整体返回 Err）绝不能 break——
+                        // 那会误杀会话：session 被清理、shell 被 kill，前端却可能
+                        // 同样收不到 exit 事件，留下永远无法恢复的空白终端。
+                        // 数据已进入 backlog，忽略失败继续读。
+                        let _ = app.emit(&data_event, text);
                     }
                 }
                 Err(_) => break,
