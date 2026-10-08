@@ -17,6 +17,10 @@ window.addEventListener('unhandledrejection', (e) =>
   recordFatal('rejection', (e.reason && e.reason.stack) || e.reason)
 )
 
+// 禁用页面内发起的拖拽：终端里选中文字后拖动会在 WKWebView 留下卡住的
+// 拖拽残影（小浮框）。访达文件拖入是系统级拖拽，不经 dragstart，不受影响。
+document.addEventListener('dragstart', (e) => e.preventDefault())
+
 // 编辑器窗口（index.html?editor=1&path=...）挂载编辑器，否则挂载终端主界面
 const params = new URLSearchParams(location.search)
 const root = params.get('editor') ? EditorApp : App
