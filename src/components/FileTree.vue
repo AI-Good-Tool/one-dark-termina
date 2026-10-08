@@ -141,6 +141,38 @@ function shortPath(path) {
   return path
 }
 
+// ---- 侧缘拖拽调宽（持久化 localStorage，140~520px）----
+const SIDEBAR_W_KEY = 'odt-sidebar-width'
+const width = ref(clampWidth(Number(localStorage.getItem(SIDEBAR_W_KEY)) || 220))
+let resizing = false
+
+function clampWidth(w) {
+  return Math.min(520, Math.max(140, w))
+}
+
+function startResize(e) {
+  if (e.button !== 0) return
+  e.preventDefault()
+  resizing = true
+  const startX = e.clientX
+  const startW = width.value
+  const onMove = (ev) => {
+    width.value = clampWidth(startW + ev.clientX - startX)
+  }
+  const onUp = () => {
+    resizing = false
+    localStorage.setItem(SIDEBAR_W_KEY, String(width.value))
+    document.body.style.userSelect = ''
+    document.body.style.cursor = ''
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+  }
+  document.body.style.userSelect = 'none'
+  document.body.style.cursor = 'col-resize'
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
+
 // ---- 拖拽文件夹/文件到侧边栏：松手在该目录新开终端 ----
 // 用 Tauri 窗口级 onDragDropEvent（HTML5 DnD 拿不到 Finder 文件路径）。
 // payload.position 是物理像素，需除以 devicePixelRatio 换成逻辑坐标再比对。
@@ -293,7 +325,7 @@ function menuToggleFavorite() {
       <path d="M3 1 L7 5 L3 9" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
   </div>
-  <div v-else ref="rootEl" class="filetree" :class="{ 'drop-hover': dropHover }">
+  <div v-else ref="rootEl" class="filetree" :class="{ 'drop-hover': dropHover }" :style="{ width: width + 'px', minWidth: width + 'px' }">
     <div class="filetree-header">
       <span class="filetree-title">{{ t('files') }}</span>
       <span class="filetree-collapse" :title="t('collapsePanel')" @click="emit('toggle')">
@@ -396,20 +428,36 @@ function menuToggleFavorite() {
         <button class="ctx-item" @click="menuReveal">{{ t('revealInFinder') }}</button>
       </div>
     </div>
+    <!-- 右缘拖拽调宽手柄 -->
+    <div class="ft-resizer" @mousedown="startResize"></div>
   </div>
 </template>
 
 <style scoped>
 .filetree {
   position: relative;
-  width: 220px;
-  min-width: 220px;
   height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--bg-dark, #21252b);
   border-right: 1px solid rgba(0, 0, 0, 0.35);
   user-select: none;
+}
+
+/* 右缘拖拽调宽手柄：4px 热区，悬停/拖拽时亮出 */
+.ft-resizer {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 60;
+}
+
+.ft-resizer:hover,
+.ft-resizer:active {
+  background: rgba(97, 175, 239, 0.5);
 }
 
 /* 拖拽文件夹悬停在侧边栏上的高亮（展开/折叠两态共用） */
