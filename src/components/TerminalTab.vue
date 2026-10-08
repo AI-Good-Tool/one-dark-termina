@@ -541,12 +541,16 @@ onMounted(async () => {
   term.onLineFeed(() => updateScrollbar())
   term.buffer.onBufferChange(() => updateScrollbar())
 
-  unlistenData = await listen(`pty-data-${props.sessionId}`, (e) => {
-    feedPtyData(e.payload)
-  })
-  unlistenExit = await listen(`pty-exit-${props.sessionId}`, () => {
-    emit('exit')
-  })
+  try {
+    unlistenData = await listen(`pty-data-${props.sessionId}`, (e) => {
+      feedPtyData(e.payload)
+    })
+    unlistenExit = await listen(`pty-exit-${props.sessionId}`, () => {
+      emit('exit')
+    })
+  } catch (e) {
+    reportBootError('listen', e)
+  }
 
   // 拖入文件/文件夹 → 插入 shell 转义后的路径（多个以空格分隔，末尾补空格）。
   // Tauri 2 的 webview 会拦截 HTML5 drop，需走 onDragDropEvent 拿完整路径。
@@ -570,43 +574,19 @@ onMounted(async () => {
   })
 
   const windowLabel = getCurrentWindow().label
-  if (props.attach) {
-    // 附着已存在的会话：回放 backlog，不重启 shell
+  // 黑匣子：启动链路的任何失败都 ①红字写进终端（用户可见）②持久化到
+  // localStorage（事后可分析）。之前 spawn 静默失败 = 空白终端，无法排查。
+  function reportBootError(stage, err) {
+    const msg = String(err && err.message ? err.message : err)
     try {
-      const backlog = await invoke('pty_attach', {
-        id: props.sessionId,
-        window: windowLabel
-      })
-      spawned = true
-      // 回放完毕后再同步尺寸：初始 fit 时 spawned=false，onResize 不会上报。
-      // resize 触发 SIGWINCH（尺寸未变时 Rust 侧手动补发），shell 重绘提示符。
-      const syncSize = () => {
-        invoke('pty_resize', {
-          id: props.sessionId,
-          cols: term.cols,
-          rows: term.rows
-        }).catch(() => {})
-      }
-      if (backlog) {
-        // 回放是按旧窗口尺寸记录的原始字节流，瞬态显示状态（如 zsh 部分行
-        // 的 % 反显标记）在新尺寸下会残留成花屏块；回放后清掉可见屏
-        //（滚屏历史保留），由 SIGWINCH 让 shell 重绘出干净屏幕
-        term.write(colorizeUrls(backlog) + '\x1b[2J\x1b[H', syncSize)
-      } else {
-        syncSize()
-      }
-    } catch {
-      // 会话已不存在：当作新会话启动
-      await invoke('pty_spawn', {
-        id: props.sessionId,
-        window: windowLabel,
-        cols: term.cols,
-        rows: term.rows,
-        cwd: props.cwd || takePendingCwd()
-      })
-      spawned = true
-    }
-  } else {
+      localStorage.setItem(
+        'odt-last-boot-error',
+        JSON.stringify({ sessionId: props.sessionId, stage, msg, time: Date.now() })
+      )
+    } catch { /* 忽略 */ }
+    term?.write(`\r\n\x1b[31m[终端启动失败 @${stage}] ${msg}\x1b[0m\r\n`)
+  }
+  async function spawnNew() {
     await invoke('pty_spawn', {
       id: props.sessionId,
       window: windowLabel,
@@ -615,6 +595,42 @@ onMounted(async () => {
       cwd: props.cwd || takePendingCwd()
     })
     spawned = true
+  }
+  try {
+    if (props.attach) {
+      // 附着已存在的会话：回放 backlog，不重启 shell
+      try {
+        const backlog = await invoke('pty_attach', {
+          id: props.sessionId,
+          window: windowLabel
+        })
+        spawned = true
+        // 回放完毕后再同步尺寸：初始 fit 时 spawned=false，onResize 不会上报。
+        // resize 触发 SIGWINCH（尺寸未变时 Rust 侧手动补发），shell 重绘提示符。
+        const syncSize = () => {
+          invoke('pty_resize', {
+            id: props.sessionId,
+            cols: term.cols,
+            rows: term.rows
+          }).catch(() => {})
+        }
+        if (backlog) {
+          // 回放是按旧窗口尺寸记录的原始字节流，瞬态显示状态（如 zsh 部分行
+          // 的 % 反显标记）在新尺寸下会残留成花屏块；回放后清掉可见屏
+          //（滚屏历史保留），由 SIGWINCH 让 shell 重绘出干净屏幕
+          term.write(colorizeUrls(backlog) + '\x1b[2J\x1b[H', syncSize)
+        } else {
+          syncSize()
+        }
+      } catch {
+        // 会话已不存在：当作新会话启动
+        await spawnNew()
+      }
+    } else {
+      await spawnNew()
+    }
+  } catch (e) {
+    reportBootError('pty_spawn', e)
   }
 
   // 输入锁：前台程序状态轮询（新输出触发的去抖查询见 feedPtyData）

@@ -273,6 +273,13 @@ function closeTab(tab) {
 }
 
 function onPaneExit(tabId, paneId) {
+  // 黑匣子：shell 退出导致窗格被移除也留痕（排查"标签凭空消失"）
+  try {
+    localStorage.setItem(
+      'odt-last-pane-exit',
+      JSON.stringify({ tabId, paneId, time: Date.now() })
+    )
+  } catch { /* 忽略 */ }
   closePane(tabId, paneId)
 }
 
