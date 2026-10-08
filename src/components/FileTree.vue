@@ -134,11 +134,24 @@ function baseName(path) {
   return parts[parts.length - 1] || '/'
 }
 
+// 最近列表右键：在访达中打开该目录
+function openDirInFinder(path) {
+  invoke('reveal_in_finder', { path, isDir: true }).catch(() => {})
+}
+
 // 最近列表显示：HOME 缩写为 ~，过长时左侧截断（CSS direction:rtl）
 function shortPath(path) {
   const h = homeDir.value
   if (h && (path === h || path.startsWith(h + '/'))) return '~' + path.slice(h.length)
   return path
+}
+
+// 目录的父级路径（用于最近列表中目录名后的灰色小字区分同名目录）
+function parentOf(path) {
+  const trimmed = path.replace(/\/+$/, '')
+  const idx = trimmed.lastIndexOf('/')
+  if (idx <= 0) return ''
+  return shortPath(trimmed.slice(0, idx))
 }
 
 // ---- 侧缘拖拽调宽（持久化 localStorage，140~520px）----
@@ -350,6 +363,7 @@ function menuToggleFavorite() {
           class="tree-row ft-dir-row"
           :title="f"
           @click="openDir(f)"
+          @contextmenu.prevent="openDirInFinder(f)"
         >
           <span class="chev-spacer"></span>
           <span class="tree-icon" :style="{ fontFamily: iconFont, color: '#e5c07b' }">&#xf07b;</span>
@@ -375,10 +389,12 @@ function menuToggleFavorite() {
           class="tree-row ft-dir-row"
           :title="r"
           @click="openDir(r)"
+          @contextmenu.prevent="openDirInFinder(r)"
         >
           <span class="chev-spacer"></span>
           <span class="tree-icon" :style="{ fontFamily: iconFont, color: '#56b6c2' }">&#xf017;</span>
-          <span class="tree-name ft-path">{{ shortPath(r) }}</span>
+          <span class="tree-name">{{ baseName(r) }}</span>
+          <span class="ft-parent">{{ parentOf(r) }}</span>
         </div>
         <div v-if="!recents.length" class="ft-empty">{{ t('emptyRecent') }}</div>
       </div>
@@ -582,9 +598,22 @@ function menuToggleFavorite() {
   position: relative;
 }
 
-.ft-path {
+/* 最近列表：目录名后跟随父级路径小字（左侧截断，悬停 title 看全路径） */
+.ft-dir-row .tree-name {
+  flex-shrink: 0;
+  max-width: 55%;
+}
+
+.ft-parent {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   direction: rtl;
   text-align: left;
+  font-size: 10px;
+  color: #4b5263;
 }
 
 .ft-remove {
