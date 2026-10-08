@@ -223,7 +223,13 @@ async function onTabDragEnd(tab, e) {
 
 function addTab(cwd) {
   const tab = newTab()
-  if (cwd) tab.panes[0].cwd = cwd
+  if (cwd) {
+    tab.panes[0].cwd = cwd
+    // 记录"最近打开终端的目录"（上限 30，侧边栏历史区块），并广播让多窗口同步
+    invoke('push_recent_dir', { path: cwd })
+      .then(() => emit('odt-dirs-changed', {}))
+      .catch(() => {})
+  }
   tabs.value.push(tab)
   activeId.value = tab.id
   nameTab(tab)

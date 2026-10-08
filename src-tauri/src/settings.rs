@@ -20,6 +20,12 @@ pub struct Settings {
     /// 光标样式："bar" | "block" | "underline" | 精灵名（cat/fighterRed 等）
     #[serde(default = "default_bar")]
     pub cursor_style: String,
+    /// 侧边栏收藏目录（绝对路径）
+    #[serde(default)]
+    pub favorites: Vec<String>,
+    /// 最近打开终端的目录（新的在前，去重，上限 30）
+    #[serde(default)]
+    pub recent_dirs: Vec<String>,
 }
 
 fn default_system() -> String {
@@ -40,6 +46,8 @@ impl Default for Settings {
             color_theme: default_builtin(),
             icon_theme: default_builtin(),
             cursor_style: default_bar(),
+            favorites: Vec::new(),
+            recent_dirs: Vec::new(),
         }
     }
 }

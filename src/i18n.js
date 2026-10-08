@@ -56,7 +56,13 @@ const dict = {
     revealInFinder: '在访达中显示',
     collapsePanel: '折叠侧边栏',
     expandPanel: '展开侧边栏',
-    toggleSidebar: '文件侧边栏'
+    toggleSidebar: '文件侧边栏',
+    favorites: '收藏',
+    recentDirs: '最近打开',
+    addFavorite: '收藏该路径',
+    removeFavorite: '取消收藏',
+    emptyFavorites: '暂无收藏（右键目录可收藏）',
+    emptyRecent: '暂无记录'
   },
   en: {
     terminalName: (n) => `Terminal ${n}`,
@@ -101,7 +107,13 @@ const dict = {
     revealInFinder: 'Reveal in Finder',
     collapsePanel: 'Collapse sidebar',
     expandPanel: 'Expand sidebar',
-    toggleSidebar: 'File sidebar'
+    toggleSidebar: 'File sidebar',
+    favorites: 'Favorites',
+    recentDirs: 'Recent',
+    addFavorite: 'Add to Favorites',
+    removeFavorite: 'Remove from Favorites',
+    emptyFavorites: 'No favorites (right-click a folder)',
+    emptyRecent: 'No recent directories'
   }
 }
 

@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { emit as emitGlobal, listen } from '@tauri-apps/api/event'
 import { iconFontFamily } from '../theme'
 import { openEditorWindow } from '../editor'
 import { t } from '../i18n'
@@ -86,6 +87,59 @@ const rows = computed(() => {
   return out
 })
 
+// ---- 收藏 / 最近打开目录（持久化在 settings.json，多窗口经全局事件同步）----
+const favorites = ref([])
+const recents = ref([])
+const favOpen = ref(localStorage.getItem('odt-sec-fav-open') !== '0')
+const recentOpen = ref(localStorage.getItem('odt-sec-recent-open') === '1')
+
+async function reloadDirLists() {
+  try {
+    favorites.value = (await invoke('list_favorites')) || []
+  } catch { /* 保持现状 */ }
+  try {
+    recents.value = (await invoke('list_recent_dirs')) || []
+  } catch { /* 保持现状 */ }
+}
+
+function toggleSection(which) {
+  if (which === 'fav') {
+    favOpen.value = !favOpen.value
+    localStorage.setItem('odt-sec-fav-open', favOpen.value ? '1' : '0')
+  } else {
+    recentOpen.value = !recentOpen.value
+    localStorage.setItem('odt-sec-recent-open', recentOpen.value ? '1' : '0')
+  }
+}
+
+async function setFavorite(path, on) {
+  try {
+    favorites.value = (await invoke('set_favorite', { path, on })) || []
+    emitGlobal('odt-dirs-changed', {}).catch(() => {})
+  } catch { /* 忽略 */ }
+}
+
+function isFavorite(path) {
+  return favorites.value.includes(path)
+}
+
+// 点击收藏/最近行：在该目录打开终端（记录最近由 App.addTab 统一负责）
+function openDir(path) {
+  emit('open-terminal', path)
+}
+
+function baseName(path) {
+  const parts = path.split('/').filter(Boolean)
+  return parts[parts.length - 1] || '/'
+}
+
+// 最近列表显示：HOME 缩写为 ~，过长时左侧截断（CSS direction:rtl）
+function shortPath(path) {
+  const h = homeDir.value
+  if (h && (path === h || path.startsWith(h + '/'))) return '~' + path.slice(h.length)
+  return path
+}
+
 // ---- cwd 跟随：轮询 + 切换窗格立即刷新 ----
 let pollTimer = null
 
@@ -109,6 +163,8 @@ watch(
   () => refreshCwd()
 )
 
+let unlistenDirs = null
+
 onMounted(() => {
   invoke('get_home_dir')
     .then((h) => {
@@ -117,10 +173,14 @@ onMounted(() => {
     .catch(() => {})
   refreshCwd()
   pollTimer = setInterval(refreshCwd, 1500)
+  reloadDirLists()
+  // 其他窗口（或本窗口其他操作）改了收藏/最近 → 刷新
+  listen('odt-dirs-changed', () => reloadDirLists()).then((u) => (unlistenDirs = u))
 })
 
 onBeforeUnmount(() => {
   clearInterval(pollTimer)
+  if (unlistenDirs) unlistenDirs()
 })
 
 // ---- 图标字体：扩展字体优先，Nerd Font 兜底（与终端字体栈一致）----
@@ -166,6 +226,12 @@ function menuReveal() {
   }
   closeMenu()
 }
+
+function menuToggleFavorite() {
+  const m = menu.value
+  if (m && m.entry.isDir) setFavorite(m.entry.path, !isFavorite(m.entry.path))
+  closeMenu()
+}
 </script>
 
 <template>
@@ -183,6 +249,55 @@ function menuReveal() {
           <path d="M7 1 L3 5 L7 9" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
       </span>
+    </div>
+    <!-- 收藏目录 -->
+    <div class="ft-section">
+      <div class="ft-section-header" @click="toggleSection('fav')">
+        <svg class="chev" :class="{ open: favOpen }" width="9" height="9" viewBox="0 0 8 8">
+          <path d="M2 1 L6 4 L2 7" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        <span class="ft-sec-icon" :style="{ fontFamily: iconFont, color: '#e5c07b' }">&#xf005;</span>
+        <span class="ft-sec-title">{{ t('favorites') }}</span>
+      </div>
+      <div v-if="favOpen" class="ft-section-body">
+        <div
+          v-for="f in favorites"
+          :key="f"
+          class="tree-row ft-dir-row"
+          :title="f"
+          @click="openDir(f)"
+        >
+          <span class="chev-spacer"></span>
+          <span class="tree-icon" :style="{ fontFamily: iconFont, color: '#e5c07b' }">&#xf07b;</span>
+          <span class="tree-name">{{ baseName(f) }}</span>
+          <span class="ft-remove" :title="t('removeFavorite')" @click.stop="setFavorite(f, false)">×</span>
+        </div>
+        <div v-if="!favorites.length" class="ft-empty">{{ t('emptyFavorites') }}</div>
+      </div>
+    </div>
+    <!-- 最近打开 -->
+    <div class="ft-section">
+      <div class="ft-section-header" @click="toggleSection('recent')">
+        <svg class="chev" :class="{ open: recentOpen }" width="9" height="9" viewBox="0 0 8 8">
+          <path d="M2 1 L6 4 L2 7" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        <span class="ft-sec-icon" :style="{ fontFamily: iconFont, color: '#56b6c2' }">&#xf017;</span>
+        <span class="ft-sec-title">{{ t('recentDirs') }}</span>
+      </div>
+      <div v-if="recentOpen" class="ft-section-body">
+        <div
+          v-for="r in recents"
+          :key="r"
+          class="tree-row ft-dir-row"
+          :title="r"
+          @click="openDir(r)"
+        >
+          <span class="chev-spacer"></span>
+          <span class="tree-icon" :style="{ fontFamily: iconFont, color: '#56b6c2' }">&#xf017;</span>
+          <span class="tree-name ft-path">{{ shortPath(r) }}</span>
+        </div>
+        <div v-if="!recents.length" class="ft-empty">{{ t('emptyRecent') }}</div>
+      </div>
     </div>
     <div class="filetree-cwd" :title="cwd">{{ displayCwd }}</div>
     <div class="filetree-root-row">
@@ -220,6 +335,9 @@ function menuReveal() {
     <div v-if="menu" class="ctx-backdrop" @mousedown="closeMenu" @contextmenu.prevent="closeMenu">
       <div class="ctx-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @mousedown.stop>
         <button class="ctx-item" @click="menuOpenTerminal">{{ t('openTerminalHere') }}</button>
+        <button v-if="menu.entry.isDir" class="ctx-item" @click="menuToggleFavorite">
+          {{ isFavorite(menu.entry.path) ? t('removeFavorite') : t('addFavorite') }}
+        </button>
         <button v-if="!menu.entry.isDir" class="ctx-item" @click="menuOpenEditor">{{ t('openInEditor') }}</button>
         <button class="ctx-item" @click="menuReveal">{{ t('revealInFinder') }}</button>
       </div>
@@ -290,6 +408,87 @@ function menuReveal() {
   direction: rtl; /* 截断时保留路径尾部（更有区分度） */
   text-align: left;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* ---- 收藏 / 最近区块 ---- */
+.ft-section {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 2px;
+}
+
+.ft-section-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px 4px 12px;
+  font-size: 11px;
+  color: #5c6370;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ft-section-header:hover {
+  color: #abb2bf;
+}
+
+.ft-sec-icon {
+  font-size: 11px;
+  width: 13px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.ft-sec-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ft-section-body {
+  max-height: 150px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 4px;
+}
+
+.ft-dir-row {
+  position: relative;
+}
+
+.ft-path {
+  direction: rtl;
+  text-align: left;
+}
+
+.ft-remove {
+  display: none;
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  line-height: 15px;
+  text-align: center;
+  border-radius: 3px;
+  color: #5c6370;
+  font-size: 12px;
+}
+
+.ft-dir-row:hover .ft-remove {
+  display: block;
+}
+
+.ft-remove:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #e06c75;
+}
+
+.ft-empty {
+  padding: 2px 12px 4px 31px;
+  font-size: 11px;
+  color: #4b5263;
 }
 
 .filetree-root-row {

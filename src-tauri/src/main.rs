@@ -438,6 +438,41 @@ fn get_home_dir() -> Option<String> {
     std::env::var("HOME").ok()
 }
 
+/// 侧边栏收藏目录列表
+#[tauri::command]
+fn list_favorites() -> Vec<String> {
+    settings::load().favorites
+}
+
+/// 收藏/取消收藏一个目录，返回更新后的列表
+#[tauri::command]
+fn set_favorite(path: String, on: bool) -> Result<Vec<String>, String> {
+    let mut s = settings::load();
+    s.favorites.retain(|p| p != &path);
+    if on {
+        s.favorites.push(path);
+    }
+    settings::save(&s)?;
+    Ok(s.favorites)
+}
+
+/// 最近打开终端的目录（新的在前，上限 30）
+#[tauri::command]
+fn list_recent_dirs() -> Vec<String> {
+    settings::load().recent_dirs
+}
+
+/// 记录一次"在此打开终端"：去重置顶、截断到 30 条，返回更新后的列表
+#[tauri::command]
+fn push_recent_dir(path: String) -> Result<Vec<String>, String> {
+    let mut s = settings::load();
+    s.recent_dirs.retain(|p| p != &path);
+    s.recent_dirs.insert(0, path);
+    s.recent_dirs.truncate(30);
+    settings::save(&s)?;
+    Ok(s.recent_dirs)
+}
+
 /// 列目录（文件树侧边栏）：目录在前排序，带图标主题的字形与颜色
 #[tauri::command]
 fn list_dir(path: String) -> Result<Vec<explorer::DirEntry>, String> {
@@ -889,6 +924,10 @@ fn main() {
             pty_cwd,
             list_dir,
             reveal_in_finder,
+            list_favorites,
+            set_favorite,
+            list_recent_dirs,
+            push_recent_dir,
             get_home_dir,
             pty_resize,
             pty_kill,
