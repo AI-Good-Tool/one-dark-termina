@@ -225,10 +225,21 @@ async function refreshCwd() {
       children.value = new Map()
       expanded.value = new Set([dir]) // 根目录默认展开
       loadChildren(dir)
+      loadRootIcon()
     }
   } catch {
     /* 查询失败保持现状 */
   }
+}
+
+// 根行的文件夹图标：与子目录同一套映射（含配色，如 dist=粉、src=绿）
+const rootIcon = ref({ glyph: '\uf07b', color: null })
+
+async function loadRootIcon() {
+  try {
+    const icon = await invoke('icon_for_entry', { name: rootName.value, isDir: true })
+    if (icon && icon.glyph) rootIcon.value = icon
+  } catch { /* 保留默认文件夹图标 */ }
 }
 
 watch(
@@ -460,6 +471,7 @@ function menuToggleFavorite() {
       <svg class="chev" width="9" height="9" viewBox="0 0 8 8">
         <path d="M1 2 L4 6 L7 2" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
+      <span class="tree-icon" :style="{ fontFamily: iconFont, color: rootIcon.color || 'inherit' }">{{ rootIcon.glyph }}</span>
       <span class="filetree-root-name">{{ rootName }}</span>
     </div>
     <div class="filetree-body">

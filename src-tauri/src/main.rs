@@ -512,6 +512,12 @@ fn resolve_drop_dir(path: String) -> Option<String> {
     }
 }
 
+/// 按名字查图标（侧边栏根行的文件夹图标，与子目录同一套映射）
+#[tauri::command]
+fn icon_for_entry(name: String, is_dir: bool) -> explorer::IconInfo {
+    explorer::icon_for(&name, is_dir)
+}
+
 /// 在访达中显示（文件=定位选中，目录=直接打开）
 #[tauri::command]
 fn reveal_in_finder(path: String, is_dir: bool) -> Result<(), String> {
@@ -957,6 +963,7 @@ fn main() {
             pty_cwd,
             list_dir,
             resolve_drop_dir,
+            icon_for_entry,
             reveal_in_finder,
             list_favorites,
             set_favorite,

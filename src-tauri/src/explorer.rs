@@ -17,6 +17,18 @@ pub struct DirEntry {
 }
 
 // ---- 图标查找（与 odtls 同一份 active-icon-map.json，保证树图标 == ls 图标）----
+#[derive(Debug, Clone, Serialize)]
+pub struct IconInfo {
+    pub glyph: String,
+    pub color: Option<String>,
+}
+
+/// 按名字查图标（供侧边栏根行等不在 list_dir 结果里的场景使用）
+pub fn icon_for(name: &str, is_dir: bool) -> IconInfo {
+    let map = load_active_map();
+    let (glyph, color) = icon_of(map.as_ref(), name, is_dir);
+    IconInfo { glyph, color }
+}
 #[derive(Deserialize)]
 struct ActiveIconMap {
     #[serde(default)]
