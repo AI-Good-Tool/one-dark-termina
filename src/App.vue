@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import TerminalTab from './components/TerminalTab.vue'
+import FileTree from './components/FileTree.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import { t, setLocale } from './i18n'
 import { invoke } from '@tauri-apps/api/core'
@@ -67,6 +68,14 @@ const activeId = ref(tabs.value[0].id)
 const showSettings = ref(false)
 const termArea = ref(null)
 const myLabel = getCurrentWindow().label
+
+// ---- 文件树侧边栏：默认展开，可折叠（localStorage 持久化）----
+const sidebarCollapsed = ref(localStorage.getItem('odt-sidebar-collapsed') === '1')
+watch(sidebarCollapsed, (v) => localStorage.setItem('odt-sidebar-collapsed', v ? '1' : '0'))
+// 侧边栏跟随的会话：当前标签的激活窗格
+const activePaneId = computed(
+  () => activeTab.value?.panes[activeTab.value.activePane]?.id || ''
+)
 
 const findTab = (tabId) => tabs.value.find((t) => t.id === tabId)
 const totalPanes = computed(() => tabs.value.reduce((n, t) => n + t.panes.length, 0))
@@ -212,8 +221,9 @@ async function onTabDragEnd(tab, e) {
   }
 }
 
-function addTab() {
+function addTab(cwd) {
   const tab = newTab()
+  if (cwd) tab.panes[0].cwd = cwd
   tabs.value.push(tab)
   activeId.value = tab.id
   nameTab(tab)
@@ -557,6 +567,15 @@ function onMoveKey(e) {
       </div>
       <button
         class="settings-btn"
+        :title="t('toggleSidebar')"
+        @click="sidebarCollapsed = !sidebarCollapsed"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3l1.5 2h6.5A1.5 1.5 0 0 1 15 5.5v6a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 11.5v-8zm1.5-.5a.5.5 0 0 0-.5.5v8a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5v-6a.5.5 0 0 0-.5-.5H6.6L5.1 3H2.5z" />
+        </svg>
+      </button>
+      <button
+        class="settings-btn"
         :title="t('settings')"
         @click="showSettings = true"
       >
@@ -570,6 +589,13 @@ function onMoveKey(e) {
         </svg>
       </button>
     </div>
+    <div class="body-row">
+      <FileTree
+        :session-id="activePaneId"
+        :collapsed="sidebarCollapsed"
+        @toggle="sidebarCollapsed = !sidebarCollapsed"
+        @open-terminal="addTab"
+      />
     <div class="term-area" ref="termArea">
       <div
         v-for="tab in tabs"
@@ -605,6 +631,7 @@ function onMoveKey(e) {
                 :session-id="pane.id"
                 :active="tab.id === activeId && i === tab.activePane"
                 :attach="pane.attach"
+                :cwd="pane.cwd || ''"
                 @exit="onPaneExit(tab.id, pane.id)"
                 @title="onTitle(pane.id, $event)"
                 @contextmenu="onPaneContextMenu(tab, pane, $event)"
@@ -641,6 +668,7 @@ function onMoveKey(e) {
           </div>
         </div>
       </div>
+    </div>
     </div>
     <!-- 右键菜单（标签 / 终端内容区） -->
     <div
@@ -836,8 +864,16 @@ function onMoveKey(e) {
 .term-area {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   position: relative;
   background: var(--bg);
+}
+
+/* 文件树侧边栏 + 终端区的横向布局 */
+.body-row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
 }
 
 /* ---- 分屏布局 ---- */

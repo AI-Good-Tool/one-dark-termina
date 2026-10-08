@@ -49,7 +49,14 @@ const dict = {
     moveIncoming: (title) => `正在移动会话「${title}」— 选择本窗口的目标窗格`,
     ctxCopy: '复制',
     ctxPaste: '粘贴',
-    ctxSelectAll: '全选'
+    ctxSelectAll: '全选',
+    files: '文件',
+    openTerminalHere: '在此打开终端',
+    openInEditor: '在编辑器打开',
+    revealInFinder: '在访达中显示',
+    collapsePanel: '折叠侧边栏',
+    expandPanel: '展开侧边栏',
+    toggleSidebar: '文件侧边栏'
   },
   en: {
     terminalName: (n) => `Terminal ${n}`,
@@ -87,7 +94,14 @@ const dict = {
     moveIncoming: (title) => `Moving session "${title}" — pick a destination pane in this window`,
     ctxCopy: 'Copy',
     ctxPaste: 'Paste',
-    ctxSelectAll: 'Select All'
+    ctxSelectAll: 'Select All',
+    files: 'Files',
+    openTerminalHere: 'Open Terminal Here',
+    openInEditor: 'Open in Editor',
+    revealInFinder: 'Reveal in Finder',
+    collapsePanel: 'Collapse sidebar',
+    expandPanel: 'Expand sidebar',
+    toggleSidebar: 'File sidebar'
   }
 }
 

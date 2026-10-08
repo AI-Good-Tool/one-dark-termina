@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod extensions;
+mod explorer;
 mod icon_table;
 mod settings;
 #[cfg(target_os = "macos")]
@@ -278,37 +279,60 @@ fn pty_fg_program(state: State<'_, AppState>, id: &str) -> Result<Option<String>
     Ok(fg_program_name(pid))
 }
 
+// proc_bsdinfo 字段偏移（XNU sys/proc_info.h，64 位）：
+// pbi_comm @48（16 字节）、pbi_pgid @100、pbi_tpgid @112，总长约 152 字节
+#[cfg(target_os = "macos")]
+fn bsdinfo(pid: u32) -> Option<[u8; 256]> {
+    unsafe extern "C" {
+        fn proc_pidinfo(pid: i32, flavor: i32, arg: u64, buffer: *mut u8, bufsize: i32) -> i32;
+    }
+    const PROC_PIDTBSDINFO: i32 = 3;
+    let mut buf = [0u8; 256];
+    let n = unsafe {
+        proc_pidinfo(pid as i32, PROC_PIDTBSDINFO, 1, buf.as_mut_ptr(), buf.len() as i32)
+    };
+    if n < 152 {
+        return None;
+    }
+    Some(buf)
+}
+
+#[cfg(target_os = "macos")]
+fn rd_u32(b: &[u8; 256], off: usize) -> u32 {
+    u32::from_ne_bytes(b[off..off + 4].try_into().unwrap())
+}
+
+/// PTY 前台进程 pid：shell 停在提示符时返回 shell 自身，
+/// 有前台程序时返回前台进程组组长（tpgid）。
+#[cfg(target_os = "macos")]
+fn fg_pid_of(shell_pid: u32) -> u32 {
+    let Some(info) = bsdinfo(shell_pid) else {
+        return shell_pid;
+    };
+    let tpgid = rd_u32(&info, 112);
+    if tpgid == 0 || tpgid == rd_u32(&info, 100) {
+        shell_pid
+    } else {
+        tpgid
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn fg_pid_of(shell_pid: u32) -> u32 {
+    shell_pid
+}
+
 #[cfg(target_os = "macos")]
 fn fg_program_name(shell_pid: u32) -> Option<String> {
-    // proc_bsdinfo 字段偏移（XNU sys/proc_info.h，64 位）：
-    // pbi_comm @48（16 字节）、pbi_pgid @100、pbi_tpgid @112，总长约 152 字节
-    fn bsdinfo(pid: u32) -> Option<[u8; 256]> {
-        unsafe extern "C" {
-            fn proc_pidinfo(pid: i32, flavor: i32, arg: u64, buffer: *mut u8, bufsize: i32) -> i32;
-        }
-        const PROC_PIDTBSDINFO: i32 = 3;
-        let mut buf = [0u8; 256];
-        let n = unsafe {
-            proc_pidinfo(pid as i32, PROC_PIDTBSDINFO, 1, buf.as_mut_ptr(), buf.len() as i32)
-        };
-        if n < 152 {
-            return None;
-        }
-        Some(buf)
-    }
-    fn rd_u32(b: &[u8; 256], off: usize) -> u32 {
-        u32::from_ne_bytes(b[off..off + 4].try_into().unwrap())
-    }
-    let info = bsdinfo(shell_pid)?;
-    let tpgid = rd_u32(&info, 112); // 控制终端的前台进程组
-    if tpgid == 0 || tpgid == rd_u32(&info, 100) {
+    let fg_pid = fg_pid_of(shell_pid);
+    if fg_pid == shell_pid {
         return None; // shell 自己的进程组在前台 = 停在提示符
     }
-    let fg = bsdinfo(tpgid)?; // 进程组组长 pid == pgid
+    let fg = bsdinfo(fg_pid)?;
     let end = fg[48..64].iter().position(|&c| c == 0).unwrap_or(16);
     let comm = String::from_utf8_lossy(&fg[48..48 + end]).to_string();
     // comm 对脚本类程序是解释器名（mvn→sh、npm→node），需看 argv 还原真实入口
-    Some(display_name_of(tpgid, comm))
+    Some(display_name_of(fg_pid, comm))
 }
 
 /// 读进程 argv（sysctl KERN_PROCARGS2）：int32 argc + exec 路径（NUL 结尾，
@@ -393,6 +417,48 @@ fn display_name_of(pid: u32, comm: String) -> String {
 #[cfg(not(target_os = "macos"))]
 fn fg_program_name(_shell_pid: u32) -> Option<String> {
     None
+}
+
+/// 终端前台进程的工作目录：文件树侧边栏跟随 cd 的依据
+#[tauri::command]
+fn pty_cwd(state: State<'_, AppState>, id: &str) -> Result<Option<String>, String> {
+    let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+    let Some(s) = sessions.get(id) else {
+        return Ok(None);
+    };
+    let Some(pid) = s.child.process_id() else {
+        return Ok(None);
+    };
+    Ok(explorer::cwd_of(fg_pid_of(pid)))
+}
+
+/// 用户主目录：侧边栏路径显示 ~ 缩写用（只对真实 HOME 前缀缩写）
+#[tauri::command]
+fn get_home_dir() -> Option<String> {
+    std::env::var("HOME").ok()
+}
+
+/// 列目录（文件树侧边栏）：目录在前排序，带图标主题的字形与颜色
+#[tauri::command]
+fn list_dir(path: String) -> Result<Vec<explorer::DirEntry>, String> {
+    explorer::list_dir(&path)
+}
+
+/// 在访达中显示（文件=定位选中，目录=直接打开）
+#[tauri::command]
+fn reveal_in_finder(path: String, is_dir: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut c = std::process::Command::new("open");
+        if is_dir {
+            c.arg(&path);
+        } else {
+            c.arg("-R").arg(&path);
+        }
+        c.spawn().map_err(|e| e.to_string())?;
+    }
+    let _ = (path, is_dir);
+    Ok(())
 }
 
 #[tauri::command]
@@ -820,6 +886,10 @@ fn main() {
             pty_spawn,
             pty_write,
             pty_fg_program,
+            pty_cwd,
+            list_dir,
+            reveal_in_finder,
+            get_home_dir,
             pty_resize,
             pty_kill,
             pty_attach,

@@ -44,7 +44,9 @@ const props = defineProps({
   sessionId: { type: String, required: true },
   active: { type: Boolean, default: true },
   // 附着模式：复用已存在的 PTY 会话（标签被拖出移动到新窗口），不重启 shell
-  attach: { type: Boolean, default: false }
+  attach: { type: Boolean, default: false },
+  // 文件树"在此打开终端"指定的初始目录（优先于窗口级 pendingCwd）
+  cwd: { type: String, default: '' }
 })
 const emit = defineEmits(['exit', 'title', 'contextmenu'])
 
@@ -600,7 +602,7 @@ onMounted(async () => {
         window: windowLabel,
         cols: term.cols,
         rows: term.rows,
-        cwd: takePendingCwd()
+        cwd: props.cwd || takePendingCwd()
       })
       spawned = true
     }
@@ -610,7 +612,7 @@ onMounted(async () => {
       window: windowLabel,
       cols: term.cols,
       rows: term.rows,
-      cwd: takePendingCwd()
+      cwd: props.cwd || takePendingCwd()
     })
     spawned = true
   }

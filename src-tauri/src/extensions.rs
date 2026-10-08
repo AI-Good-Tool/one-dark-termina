@@ -555,7 +555,11 @@ pub fn activate_color_theme(value: &str) -> Result<Option<serde_json::Value>, St
 mod tests {
     use super::*;
 
+    // 危险：会导入并卸载 ~/.onedark-terminal 里的真实扩展、重置 settings.json，
+    // 且断言 registry 为空（用户装有其他扩展时必失败）。仅作开发种子数据用，
+    // 必须显式 `cargo test -- --ignored` 才运行。
     #[test]
+    #[ignore]
     fn test_import_and_activate() {
         let home = std::env::var("HOME").unwrap();
         let mit = format!("{home}/Downloads/PKief.material-icon-theme-5.38.1.vsix");
