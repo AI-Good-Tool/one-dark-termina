@@ -62,7 +62,8 @@ const dict = {
     addFavorite: '收藏该路径',
     removeFavorite: '取消收藏',
     emptyFavorites: '暂无收藏（右键目录可收藏）',
-    emptyRecent: '暂无记录'
+    emptyRecent: '暂无记录',
+    dropToOpen: '松开在此目录打开终端'
   },
   en: {
     terminalName: (n) => `Terminal ${n}`,
@@ -113,7 +114,8 @@ const dict = {
     addFavorite: 'Add to Favorites',
     removeFavorite: 'Remove from Favorites',
     emptyFavorites: 'No favorites (right-click a folder)',
-    emptyRecent: 'No recent directories'
+    emptyRecent: 'No recent directories',
+    dropToOpen: 'Drop to open terminal here'
   }
 }
 

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { emit as emitGlobal, listen } from '@tauri-apps/api/event'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { iconFontFamily } from '../theme'
 import { openEditorWindow } from '../editor'
 import { t } from '../i18n'
@@ -140,6 +141,33 @@ function shortPath(path) {
   return path
 }
 
+// ---- 拖拽文件夹/文件到侧边栏：松手在该目录新开终端 ----
+// 用 Tauri 窗口级 onDragDropEvent（HTML5 DnD 拿不到 Finder 文件路径）。
+// payload.position 是物理像素，需除以 devicePixelRatio 换成逻辑坐标再比对。
+const rootEl = ref(null)
+const dropHover = ref(false)
+
+function pointInRoot(pos) {
+  const el = rootEl.value
+  if (!el || !pos) return false
+  const scale = window.devicePixelRatio || 1
+  const x = pos.x / scale
+  const y = pos.y / scale
+  const r = el.getBoundingClientRect()
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+}
+
+async function handleDropPaths(paths) {
+  for (const p of paths || []) {
+    try {
+      const dir = await invoke('resolve_drop_dir', { path: p })
+      if (dir) emit('open-terminal', dir)
+    } catch {
+      /* 路径不可解析则忽略 */
+    }
+  }
+}
+
 // ---- cwd 跟随：轮询 + 切换窗格立即刷新 ----
 let pollTimer = null
 
@@ -164,6 +192,7 @@ watch(
 )
 
 let unlistenDirs = null
+let unlistenDrag = null
 
 onMounted(() => {
   invoke('get_home_dir')
@@ -176,11 +205,27 @@ onMounted(() => {
   reloadDirLists()
   // 其他窗口（或本窗口其他操作）改了收藏/最近 → 刷新
   listen('odt-dirs-changed', () => reloadDirLists()).then((u) => (unlistenDirs = u))
+  // Finder 拖文件夹/文件进侧边栏 → 在该目录新开终端（落点在侧边栏内才响应）
+  getCurrentWebview()
+    .onDragDropEvent((event) => {
+      const p = event.payload
+      if (p.type === 'enter' || p.type === 'over') {
+        dropHover.value = pointInRoot(p.position)
+      } else if (p.type === 'leave') {
+        dropHover.value = false
+      } else if (p.type === 'drop') {
+        const inside = pointInRoot(p.position)
+        dropHover.value = false
+        if (inside) handleDropPaths(p.paths)
+      }
+    })
+    .then((u) => (unlistenDrag = u))
 })
 
 onBeforeUnmount(() => {
   clearInterval(pollTimer)
   if (unlistenDirs) unlistenDirs()
+  if (unlistenDrag) unlistenDrag()
 })
 
 // ---- 图标字体：扩展字体优先，Nerd Font 兜底（与终端字体栈一致）----
@@ -236,12 +281,19 @@ function menuToggleFavorite() {
 
 <template>
   <!-- 折叠态：细条 + 展开按钮 -->
-  <div v-if="collapsed" class="filetree-rail" :title="t('expandPanel')" @click="emit('toggle')">
+  <div
+    v-if="collapsed"
+    ref="rootEl"
+    class="filetree-rail"
+    :class="{ 'drop-hover': dropHover }"
+    :title="t('expandPanel')"
+    @click="emit('toggle')"
+  >
     <svg width="12" height="12" viewBox="0 0 10 10">
       <path d="M3 1 L7 5 L3 9" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
   </div>
-  <div v-else class="filetree">
+  <div v-else ref="rootEl" class="filetree" :class="{ 'drop-hover': dropHover }">
     <div class="filetree-header">
       <span class="filetree-title">{{ t('files') }}</span>
       <span class="filetree-collapse" :title="t('collapsePanel')" @click="emit('toggle')">
@@ -331,6 +383,8 @@ function menuToggleFavorite() {
         <span class="tree-name">{{ row.name }}</span>
       </div>
     </div>
+    <!-- 拖拽提示层 -->
+    <div v-if="dropHover" class="drop-hint">{{ t('dropToOpen') }}</div>
     <!-- 右键菜单 -->
     <div v-if="menu" class="ctx-backdrop" @mousedown="closeMenu" @contextmenu.prevent="closeMenu">
       <div class="ctx-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @mousedown.stop>
@@ -347,6 +401,7 @@ function menuToggleFavorite() {
 
 <style scoped>
 .filetree {
+  position: relative;
   width: 220px;
   min-width: 220px;
   height: 100%;
@@ -355,6 +410,29 @@ function menuToggleFavorite() {
   background: var(--bg-dark, #21252b);
   border-right: 1px solid rgba(0, 0, 0, 0.35);
   user-select: none;
+}
+
+/* 拖拽文件夹悬停在侧边栏上的高亮（展开/折叠两态共用） */
+.filetree.drop-hover,
+.filetree-rail.drop-hover {
+  outline: 2px solid #61afef;
+  outline-offset: -2px;
+  background: rgba(97, 175, 239, 0.08);
+}
+
+.drop-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  text-align: center;
+  font-size: 12px;
+  color: #61afef;
+  background: rgba(33, 37, 43, 0.82);
+  pointer-events: none; /* 不拦截拖拽事件本身 */
 }
 
 .filetree-rail {

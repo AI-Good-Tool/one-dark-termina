@@ -482,6 +482,19 @@ fn list_dir(path: String) -> Result<Vec<explorer::DirEntry>, String> {
     explorer::list_dir(&path)
 }
 
+/// 拖拽落点解析为目录：目录原样返回；文件取其父目录（拖文件=在它所在目录打开终端）。
+/// metadata 跟随软链；路径不存在/不可读返回 None。
+#[tauri::command]
+fn resolve_drop_dir(path: String) -> Option<String> {
+    let p = std::path::Path::new(&path);
+    let meta = std::fs::metadata(p).ok()?;
+    if meta.is_dir() {
+        Some(path)
+    } else {
+        p.parent().map(|d| d.to_string_lossy().to_string())
+    }
+}
+
 /// 在访达中显示（文件=定位选中，目录=直接打开）
 #[tauri::command]
 fn reveal_in_finder(path: String, is_dir: bool) -> Result<(), String> {
@@ -926,6 +939,7 @@ fn main() {
             pty_fg_program,
             pty_cwd,
             list_dir,
+            resolve_drop_dir,
             reveal_in_finder,
             list_favorites,
             set_favorite,
