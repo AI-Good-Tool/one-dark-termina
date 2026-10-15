@@ -241,12 +241,15 @@ fn pty_spawn(
                 Err(_) => break,
             }
         }
-        // shell 退出：清理会话并通知前端
+        // shell 退出：清理会话并通知前端（锁内只摘除，kill 放锁外，理由同 pty_kill）
         if let Some(state) = app.try_state::<AppState>() {
-            if let Ok(mut sessions) = state.sessions.lock() {
-                if let Some(mut s) = sessions.remove(&thread_id) {
-                    let _ = s.child.kill();
-                }
+            let victim = state
+                .sessions
+                .lock()
+                .ok()
+                .and_then(|mut sessions| sessions.remove(&thread_id));
+            if let Some(mut s) = victim {
+                let _ = s.child.kill();
             }
         }
         let _ = app.emit(&exit_event, ());
@@ -590,8 +593,13 @@ fn open_in_browser(url: String) -> Result<(), String> {
 
 #[tauri::command]
 fn pty_kill(state: State<'_, AppState>, id: &str) -> Result<(), String> {
-    let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
-    if let Some(mut s) = sessions.remove(id) {
+    // 锁内只摘除会话，kill/wait 移到锁外：wait 可能阻塞（僵死收割等），
+    // 持锁阻塞会把所有窗口的 pty_write/pty_cwd/pty_resize 全堵死（表现为整 App 假死）
+    let victim = {
+        let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+        sessions.remove(id)
+    };
+    if let Some(mut s) = victim {
         let _ = s.child.kill();
         let _ = s.child.wait();
     }
@@ -624,17 +632,21 @@ fn attach_session_cleanup(win: &tauri::WebviewWindow) {
     win.on_window_event(move |e| {
         if matches!(e, tauri::WindowEvent::Destroyed) {
             if let Some(state) = w.try_state::<AppState>() {
-                if let Ok(mut sessions) = state.sessions.lock() {
-                    let ids: Vec<String> = sessions
-                        .iter()
-                        .filter(|(_, s)| s.window == label)
-                        .map(|(id, _)| id.clone())
-                        .collect();
-                    for id in ids {
-                        if let Some(mut s) = sessions.remove(&id) {
-                            let _ = s.child.kill();
-                        }
-                    }
+                // 锁内只批量摘除，kill 放锁外（理由同 pty_kill）
+                let victims: Vec<PtySession> = state
+                    .sessions
+                    .lock()
+                    .map(|mut sessions| {
+                        let ids: Vec<String> = sessions
+                            .iter()
+                            .filter(|(_, s)| s.window == label)
+                            .map(|(id, _)| id.clone())
+                            .collect();
+                        ids.iter().filter_map(|id| sessions.remove(id)).collect()
+                    })
+                    .unwrap_or_default();
+                for mut s in victims {
+                    let _ = s.child.kill();
                 }
             }
         }
@@ -992,8 +1004,26 @@ fn main() {
             get_icon_font,
             read_file_bytes
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // macOS：窗口全部关闭后点 Dock 图标（Reopen）时重开终端窗口；
+            // 否则进程还在但无窗口、点图标无反应，看起来像"卡死"
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows,
+                ..
+            } = event
+            {
+                if !has_visible_windows {
+                    if let Err(e) = create_window(app, "index.html") {
+                        eprintln!("Reopen 重建窗口失败: {e}");
+                    }
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
 }
 
 #[cfg(all(test, target_os = "macos"))]

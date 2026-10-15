@@ -24,6 +24,11 @@
   -webkit-user-drag: none;
 }
 
+/* 标签是可拖拽元素（拖出窗口移动到新窗口），显式恢复 */
+.tab {
+  -webkit-user-drag: element;
+}
+
 html,
 body,
 #app {

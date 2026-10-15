@@ -19,7 +19,11 @@ window.addEventListener('unhandledrejection', (e) =>
 
 // 禁用页面内发起的拖拽：终端里选中文字后拖动会在 WKWebView 留下卡住的
 // 拖拽残影（小浮框）。访达文件拖入是系统级拖拽，不经 dragstart，不受影响。
-document.addEventListener('dragstart', (e) => e.preventDefault())
+// 注意放行标签（.tab）：标签拖出窗口移动到新窗口走的就是 HTML5 DnD。
+document.addEventListener('dragstart', (e) => {
+  if (e.target instanceof HTMLElement && e.target.closest('.tab')) return
+  e.preventDefault()
+})
 
 // 编辑器窗口（index.html?editor=1&path=...）挂载编辑器，否则挂载终端主界面
 const params = new URLSearchParams(location.search)
