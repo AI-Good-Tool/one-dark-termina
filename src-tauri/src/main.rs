@@ -106,6 +106,10 @@ fn pty_spawn(
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "OneDarkTerminal");
+    // zsh 的"部分行结束标记"（输出最后一行无换行时，下个提示符前补反白 %）。
+    // 合并/移动窗格的 backlog 回放会频繁踩中这个路径，残留成碍眼的反白 % 行。
+    // 置空标记符即不再显示；用户 zshrc 若自行设置 PROMPT_EOL_MARK 则以其为准。
+    cmd.env("PROMPT_EOL_MARK", "");
 
     // ---- One Dark Pro 配色环境注入（非侵入，不修改用户 dotfiles）----
     // ls 颜色（BSD / GNU）
