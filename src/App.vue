@@ -134,6 +134,10 @@ function commitRename() {
 }
 
 onMounted(async () => {
+  // 窗口从隐藏恢复（红色关闭按钮=隐藏，Dock 图标还原）且已无标签时补一个新标签
+  getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+    if (focused && tabs.value.length === 0) addTab()
+  })
   // 启动时应用已启用的扩展颜色主题 / 图标字体
   applyTermTheme(await invoke('get_term_theme'))
   const font = await invoke('get_icon_font')
@@ -243,7 +247,8 @@ function removeTab(tabId) {
   if (idx === -1) return
   tabs.value.splice(idx, 1)
   if (tabs.value.length === 0) {
-    getCurrentWindow().close()
+    // macOS 语义下 close 会被原生侧 veto 改成隐藏窗口（会话保留）
+    getCurrentWindow().close().catch(() => {})
     return
   }
   if (activeId.value === tabId) {

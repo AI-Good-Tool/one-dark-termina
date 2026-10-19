@@ -34,6 +34,27 @@ struct AppState {
     initial_cwd: Mutex<Option<String>>,
 }
 
+/// App 正在退出标志：退出流程中窗口也会收到 CloseRequested，
+/// 此时不得 veto（否则 Cmd+Q 退不掉）
+static QUITTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 终端窗口的"红色关闭按钮 = 只关闭页面"：拦截 CloseRequested 改为隐藏窗口，
+/// 窗口内的标签布局与 PTY 会话（含运行中的服务）全部保留，
+/// 点 Dock 图标（Reopen）时原样还原。真正退出（Cmd+Q）走 Destroyed 清理。
+/// 编辑器窗口不拦截（它的关闭语义就是关闭）。
+fn intercept_close_to_hide(win: &tauri::WebviewWindow) {
+    let w = win.clone();
+    win.on_window_event(move |e| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = e {
+            if QUITTING.load(std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            api.prevent_close();
+            let _ = w.hide();
+        }
+    });
+}
+
 /// 把字节流按 UTF-8 最大有效前缀解码，残余不完整字节留给下一包
 fn drain_utf8(pending: &mut Vec<u8>) -> Option<String> {
     if pending.is_empty() {
@@ -674,6 +695,7 @@ fn build_window(app: &AppHandle, label: &str, url: &str) -> Result<(), String> {
     }
     let win = builder.build().map_err(|e| e.to_string())?;
     attach_session_cleanup(&win);
+    intercept_close_to_hide(&win);
     Ok(())
 }
 
@@ -943,6 +965,7 @@ fn main() {
             // 主窗口销毁时清理其 PTY 会话
             if let Some(main_win) = app.get_webview_window("main") {
                 attach_session_cleanup(&main_win);
+                intercept_close_to_hide(&main_win);
             }
             // macOS：禁用系统级"双击标题栏缩放"（AppleActionOnDoubleClick=None）。
             // 否则双击自定义标题栏时系统缩放与前端 toggleMaximize 竞态，
@@ -1011,19 +1034,43 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            // macOS：窗口全部关闭后点 Dock 图标（Reopen）时重开终端窗口；
-            // 否则进程还在但无窗口、点图标无反应，看起来像"卡死"
+            // macOS：窗口全部关闭（实为隐藏）后点 Dock 图标（Reopen）时，
+            // 优先还原被隐藏的终端窗口（标签/会话原样保留）；没有可还原的才新建
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen {
-                has_visible_windows,
-                ..
-            } = event
-            {
-                if !has_visible_windows {
-                    if let Err(e) = create_window(app, "index.html") {
-                        eprintln!("Reopen 重建窗口失败: {e}");
+            match event {
+                tauri::RunEvent::Reopen {
+                    has_visible_windows,
+                    ..
+                } => {
+                    if !has_visible_windows {
+                        let mut restored = false;
+                        for (label, win) in app.webview_windows() {
+                            if (label == "main" || label.starts_with("win-"))
+                                && !win.is_visible().unwrap_or(true)
+                            {
+                                let _ = win.show();
+                                let _ = win.unminimize();
+                                restored = true;
+                            }
+                        }
+                        if restored {
+                            if let Some((_, win)) = app
+                                .webview_windows()
+                                .into_iter()
+                                .find(|(l, _)| l == "main" || l.starts_with("win-"))
+                            {
+                                let _ = win.set_focus();
+                            }
+                        } else if let Err(e) = create_window(app, "index.html") {
+                            eprintln!("Reopen 重建窗口失败: {e}");
+                        }
                     }
                 }
+                tauri::RunEvent::ExitRequested { .. } => {
+                    // 退出流程中窗口也会收到 CloseRequested，置标志避免 veto 挡住退出
+                    QUITTING.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+                _ => {}
             }
             #[cfg(not(target_os = "macos"))]
             let _ = (app, event);
