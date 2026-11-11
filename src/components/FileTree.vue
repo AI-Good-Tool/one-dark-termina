@@ -16,11 +16,8 @@ const props = defineProps({
 const emit = defineEmits(['open-terminal', 'toggle'])
 
 const cwd = ref('')
-const rootName = computed(() => {
-  if (!cwd.value) return ''
-  const parts = cwd.value.split('/').filter(Boolean)
-  return parts[parts.length - 1] || '/'
-})
+const pathSeparators = navigator.userAgent.includes('Windows') ? /[\\/]/ : '/'
+const rootName = computed(() => cwd.value ? baseName(cwd.value) : '')
 // 头部路径显示：只对真实 HOME 前缀缩写为 ~（挂载时取一次）
 const homeDir = ref('')
 const displayCwd = computed(() => {
@@ -131,7 +128,7 @@ function openDir(path) {
 }
 
 function baseName(path) {
-  const parts = path.split('/').filter(Boolean)
+  const parts = path.split(pathSeparators).filter(Boolean)
   return parts[parts.length - 1] || '/'
 }
 

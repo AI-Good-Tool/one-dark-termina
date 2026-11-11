@@ -7,6 +7,9 @@ edition = "2021"
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+bundled-odtls = []
+
 [[bin]]
 name = "one-dark-terminal"
 path = "src/main.rs"
@@ -14,6 +17,7 @@ path = "src/main.rs"
 [[bin]]
 name = "odtls"
 path = "src/bin/odtls.rs"
+required-features = ["bundled-odtls"]
 
 [dependencies]
 tauri = { version = "2", features = [] }
@@ -30,6 +34,9 @@ libc = "0.2"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"
 cocoa = "0.26"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [profile.release]
 lto = true

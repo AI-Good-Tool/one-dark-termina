@@ -53,8 +53,9 @@ impl Default for Settings {
 }
 
 pub fn config_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".onedark-terminal")
+    std::env::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".onedark-terminal")
 }
 
 pub fn extensions_dir() -> PathBuf {

@@ -20,6 +20,7 @@ struct PtySession {
     child: Box<dyn Child + Send + Sync>,
     /// 所属窗口标签：窗口销毁时只清理自己的会话（拖出移动后会更新）
     window: String,
+    initial_cwd: Option<String>,
     /// 最近的终端输出（拖出移动到新窗口时回放），上限 256KB
     backlog: String,
     /// 当前 PTY 尺寸：resize 尺寸未变时内核不发 SIGWINCH，需要手动补发
@@ -36,12 +37,14 @@ struct AppState {
 
 /// App 正在退出标志：退出流程中窗口也会收到 CloseRequested，
 /// 此时不得 veto（否则 Cmd+Q 退不掉）
+#[cfg(target_os = "macos")]
 static QUITTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// 终端窗口的"红色关闭按钮 = 只关闭页面"：拦截 CloseRequested 改为隐藏窗口，
 /// 窗口内的标签布局与 PTY 会话（含运行中的服务）全部保留，
 /// 点 Dock 图标（Reopen）时原样还原。真正退出（Cmd+Q）走 Destroyed 清理。
 /// 编辑器窗口不拦截（它的关闭语义就是关闭）。
+#[cfg(target_os = "macos")]
 fn intercept_close_to_hide(win: &tauri::WebviewWindow) {
     let w = win.clone();
     win.on_window_event(move |e| {
@@ -121,9 +124,19 @@ fn pty_spawn(
         })
         .map_err(|e| e.to_string())?;
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let mut cmd = CommandBuilder::new(&shell);
-    cmd.arg("-l");
+    #[cfg(windows)]
+    let mut cmd = {
+        let mut cmd = CommandBuilder::new("powershell.exe");
+        cmd.arg("-NoLogo");
+        cmd
+    };
+    #[cfg(unix)]
+    let mut cmd = {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        let mut cmd = CommandBuilder::new(&shell);
+        cmd.arg("-l");
+        cmd
+    };
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "OneDarkTerminal");
@@ -164,23 +177,27 @@ fn pty_spawn(
         );
     }
     // 内置工具目录（odtls / lsd / zsh 插件）：供 zshrc 守卫块按需引用
-    let dev_resources = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/resources"));
-    let resource_root = app
-        .path()
-        .resource_dir()
-        .ok()
-        .filter(|d| d.join("bin/lsd").exists())
-        .unwrap_or(dev_resources);
-    let bin_dir = resource_root.join("bin");
-    if bin_dir.join("lsd").exists() {
-        cmd.env("ODT_BIN_DIR", &bin_dir);
-        // 让 odtls / lsd 等内置工具可直接按名字调用
-        let path = std::env::var("PATH").unwrap_or_default();
-        cmd.env("PATH", format!("{}:{}", bin_dir.to_string_lossy(), path));
-    }
-    let zsh_dir = resource_root.join("zsh");
-    if zsh_dir.join("zsh-syntax-highlighting/zsh-syntax-highlighting.zsh").exists() {
-        cmd.env("ODT_ZSH_DIR", &zsh_dir);
+    #[cfg(unix)]
+    {
+        let dev_resources =
+            std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/resources"));
+        let resource_root = app
+            .path()
+            .resource_dir()
+            .ok()
+            .filter(|d| d.join("bin/lsd").exists())
+            .unwrap_or(dev_resources);
+        let bin_dir = resource_root.join("bin");
+        if bin_dir.join("lsd").exists() {
+            cmd.env("ODT_BIN_DIR", &bin_dir);
+            // 让 odtls / lsd 等内置工具可直接按名字调用
+            let path = std::env::var("PATH").unwrap_or_default();
+            cmd.env("PATH", format!("{}:{}", bin_dir.to_string_lossy(), path));
+        }
+        let zsh_dir = resource_root.join("zsh");
+        if zsh_dir.join("zsh-syntax-highlighting/zsh-syntax-highlighting.zsh").exists() {
+            cmd.env("ODT_ZSH_DIR", &zsh_dir);
+        }
     }
     // 用户设置的时区（默认跟随系统，不设置 TZ）
     let app_settings = settings::load();
@@ -195,13 +212,9 @@ fn pty_spawn(
         .lock()
         .ok()
         .and_then(|mut g| g.take());
-    match explicit.or(initial) {
-        Some(dir) => cmd.cwd(dir),
-        None => {
-            if let Ok(home) = std::env::var("HOME") {
-                cmd.cwd(home);
-            }
-        }
+    let initial_cwd = explicit.or(initial).or_else(get_home_dir);
+    if let Some(dir) = &initial_cwd {
+        cmd.cwd(dir);
     }
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
@@ -220,6 +233,7 @@ fn pty_spawn(
             writer,
             child,
             window,
+            initial_cwd,
             backlog: String::new(),
             cols,
             rows,
@@ -460,13 +474,13 @@ fn pty_cwd(state: State<'_, AppState>, id: &str) -> Result<Option<String>, Strin
     let Some(pid) = s.child.process_id() else {
         return Ok(None);
     };
-    Ok(explorer::cwd_of(fg_pid_of(pid)))
+    Ok(explorer::cwd_of(fg_pid_of(pid)).or_else(|| s.initial_cwd.clone()))
 }
 
 /// 用户主目录：侧边栏路径显示 ~ 缩写用（只对真实 HOME 前缀缩写）
 #[tauri::command]
 fn get_home_dir() -> Option<String> {
-    std::env::var("HOME").ok()
+    std::env::home_dir().map(|path| path.to_string_lossy().into_owned())
 }
 
 /// 侧边栏收藏目录列表
@@ -570,6 +584,7 @@ fn pty_resize(state: State<'_, AppState>, id: &str, cols: u16, rows: u16) -> Res
         if s.cols == cols && s.rows == rows {
             // 尺寸未变时 TIOCSWINSZ 不产生 SIGWINCH；attach 回放清屏后需要
             // shell 强制重绘提示符（跨窗口同尺寸移动的场景），手动补发
+            #[cfg(unix)]
             if let Some(pid) = s.child.process_id() {
                 unsafe {
                     libc::kill(pid as i32, libc::SIGWINCH);
@@ -595,7 +610,7 @@ fn pty_resize(state: State<'_, AppState>, id: &str, cols: u16, rows: u16) -> Res
 #[tauri::command]
 fn open_in_browser(url: String) -> Result<(), String> {
     // 只允许 http/https，避免被当成文件路径或恶意协议
-    if !(url.starts_with("http://") || url.starts_with("https://")) {
+    if url.contains('\0') || !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("仅支持 http/https 链接".to_string());
     }
     #[cfg(target_os = "macos")]
@@ -603,11 +618,19 @@ fn open_in_browser(url: String) -> Result<(), String> {
         .arg(&url)
         .spawn()
         .map_err(|e| e.to_string())?;
-    #[cfg(target_os = "windows")]
-    std::process::Command::new("cmd")
-        .args(["/C", "start", "", &url])
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    #[cfg(windows)]
+    {
+        use std::ptr::null;
+        use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
+
+        let url: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
+        let result = unsafe {
+            ShellExecuteW(null(), null(), url.as_ptr(), null(), null(), SW_SHOWNORMAL)
+        };
+        if result as isize <= 32 {
+            return Err(format!("无法打开链接: {}", result as isize));
+        }
+    }
     #[cfg(all(unix, not(target_os = "macos")))]
     std::process::Command::new("xdg-open")
         .arg(&url)
@@ -695,6 +718,7 @@ fn build_window(app: &AppHandle, label: &str, url: &str) -> Result<(), String> {
     }
     let win = builder.build().map_err(|e| e.to_string())?;
     attach_session_cleanup(&win);
+    #[cfg(target_os = "macos")]
     intercept_close_to_hide(&win);
     Ok(())
 }
@@ -965,6 +989,7 @@ fn main() {
             // 主窗口销毁时清理其 PTY 会话
             if let Some(main_win) = app.get_webview_window("main") {
                 attach_session_cleanup(&main_win);
+                #[cfg(target_os = "macos")]
                 intercept_close_to_hide(&main_win);
             }
             // macOS：禁用系统级"双击标题栏缩放"（AppleActionOnDoubleClick=None）。

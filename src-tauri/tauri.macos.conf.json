@@ -1,0 +1,14 @@
+{
+  "build": {
+    "features": ["bundled-odtls"]
+  },
+  "bundle": {
+    "targets": ["dmg"],
+    "resources": {
+      "resources/lproj/en.lproj/.keep": "en.lproj/.keep",
+      "resources/lproj/zh-Hans.lproj/.keep": "zh-Hans.lproj/.keep",
+      "resources/bin": "bin",
+      "resources/zsh": "zsh"
+    }
+  }
+}

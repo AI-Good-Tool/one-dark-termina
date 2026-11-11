@@ -28,20 +28,16 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg"],
     "category": "Utility",
     "resources": {
-      "resources/vim/colors/onedark.vim": "vim/colors/onedark.vim",
-      "resources/lproj/en.lproj/.keep": "en.lproj/.keep",
-      "resources/lproj/zh-Hans.lproj/.keep": "zh-Hans.lproj/.keep",
-      "resources/bin": "bin",
-      "resources/zsh": "zsh"
+      "resources/vim/colors/onedark.vim": "vim/colors/onedark.vim"
     },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.icns"
+      "icons/icon.icns",
+      "icons/icon.ico"
     ]
   }
 }
