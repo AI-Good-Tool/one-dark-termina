@@ -32,6 +32,8 @@ flowchart TD
 
 ![终端截图，文件侧边栏与 odtls 显示同一套文件图标](docs/screenshots/terminal.png)
 
+![收藏折叠后的分屏截图，左侧是示例文件树，两个窗格分别显示目录列表和源码](docs/screenshots/split-collapsed-favorites.png)
+
 ## 安装和本地开发
 
 - **macOS Apple Silicon** — 打开 `.dmg`，将 **One Dark Terminal** 拖到「应用程序」。`odtls` 随 macOS 版提供。
