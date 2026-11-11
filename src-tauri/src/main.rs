@@ -620,12 +620,19 @@ fn open_in_browser(url: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     #[cfg(windows)]
     {
-        use std::ptr::null;
+        use std::ptr::{null, null_mut};
         use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
 
         let url: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
         let result = unsafe {
-            ShellExecuteW(null(), null(), url.as_ptr(), null(), null(), SW_SHOWNORMAL)
+            ShellExecuteW(
+                null_mut(),
+                null(),
+                url.as_ptr(),
+                null(),
+                null(),
+                SW_SHOWNORMAL,
+            )
         };
         if result as isize <= 32 {
             return Err(format!("无法打开链接: {}", result as isize));
@@ -702,7 +709,7 @@ fn attach_session_cleanup(win: &tauri::WebviewWindow) {
 }
 
 fn build_window(app: &AppHandle, label: &str, url: &str) -> Result<(), String> {
-    let mut builder = tauri::WebviewWindowBuilder::new(
+    let builder = tauri::WebviewWindowBuilder::new(
         app,
         label,
         tauri::WebviewUrl::App(url.into()),
@@ -711,11 +718,9 @@ fn build_window(app: &AppHandle, label: &str, url: &str) -> Result<(), String> {
     .inner_size(960.0, 620.0)
     .min_inner_size(420.0, 280.0);
     #[cfg(target_os = "macos")]
-    {
-        builder = builder
-            .hidden_title(true)
-            .title_bar_style(tauri::TitleBarStyle::Overlay);
-    }
+    let builder = builder
+        .hidden_title(true)
+        .title_bar_style(tauri::TitleBarStyle::Overlay);
     let win = builder.build().map_err(|e| e.to_string())?;
     attach_session_cleanup(&win);
     #[cfg(target_os = "macos")]
